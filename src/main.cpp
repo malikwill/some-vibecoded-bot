@@ -24,33 +24,95 @@ using namespace macrobot;
 // -----------------------------------------------------------------------
 
 class $modify(MacroBotPlayLayer, PlayLayer) {
+    struct Fields {
+        CCLabelBMFont* frameLabel = nullptr;
+        CCLabelBMFont* eventsLabel = nullptr;
+    };
+
     bool init(GJGameLevel* level, bool useReplay, bool dontCreateObjects) {
         if (!PlayLayer::init(level, useReplay, dontCreateObjects)) return false;
 
         if (level) {
             MacroManager::get().setLevelName(level->m_levelName);
         }
+
+        // Toggleable debug HUD: current tick counter + event counter, so
+        // it's actually visible what recording/playback is doing instead
+        // of it being an opaque black box. Created hidden/shown up front
+        // and just toggled/updated from update() below.
+        m_fields->frameLabel = CCLabelBMFont::create("Frame: 0", "chatFont.fnt");
+        m_fields->frameLabel->setAnchorPoint({0.f, 1.f});
+        m_fields->frameLabel->setScale(0.45f);
+        m_fields->frameLabel->setID("macrobot-frame-label"_spr);
+        m_fields->frameLabel->setZOrder(1000);
+        this->addChild(m_fields->frameLabel, 1000);
+
+        m_fields->eventsLabel = CCLabelBMFont::create("Events: 0", "chatFont.fnt");
+        m_fields->eventsLabel->setAnchorPoint({0.f, 1.f});
+        m_fields->eventsLabel->setScale(0.45f);
+        m_fields->eventsLabel->setID("macrobot-events-label"_spr);
+        m_fields->eventsLabel->setZOrder(1000);
+        this->addChild(m_fields->eventsLabel, 1000);
+
+        auto winSize = CCDirector::sharedDirector()->getWinSize();
+        m_fields->frameLabel->setPosition({6.f, winSize.height - 6.f});
+        m_fields->eventsLabel->setPosition({6.f, winSize.height - 20.f});
+
+        updateDebugHud();
         return true;
     }
 
-    // Called once per physics tick — the exact, fixed-rate granularity we
-    // key every recorded input to. This is what makes playback
-    // frame-perfect regardless of the FPS the level is later replayed at.
+    // Called once per rendered frame. `dt` is fed into MacroManager's
+    // fixed-rate accumulator, which advances a virtual clock (0, 1, or
+    // several ticks depending on how much time actually elapsed) — see
+    // MacroManager::onPhysicsStep for why this replaced counting update()
+    // calls directly (that was the actual cause of playback not working).
     void update(float dt) {
         PlayLayer::update(dt);
 
-        MacroManager::get().onPhysicsStep([this](uint8_t button, bool player1, bool down) {
+        MacroManager::get().onPhysicsStep(dt, [this](uint8_t button, bool player1, bool down) {
             // Feed the recorded input back into the game exactly the way
             // a real press/release would: through handleButton. This is
             // the same entry point used for touch/keyboard input, so the
             // physics/response is identical to a human playing it live.
             this->handleButton(down, button, player1);
         });
+
+        updateDebugHud();
+    }
+
+    void updateDebugHud() {
+        auto& mgr = MacroManager::get();
+        bool show = mgr.isDebugHudEnabled();
+
+        if (m_fields->frameLabel) m_fields->frameLabel->setVisible(show);
+        if (m_fields->eventsLabel) m_fields->eventsLabel->setVisible(show);
+        if (!show) return;
+
+        m_fields->frameLabel->setString(("Frame: " + std::to_string(mgr.currentStep())).c_str());
+
+        std::string eventsText;
+        switch (mgr.mode()) {
+            case Mode::Recording:
+                eventsText = "Events: " + std::to_string(mgr.recordedEventCount()) + " (recording)";
+                break;
+            case Mode::Standby:
+                eventsText = "Events: " + std::to_string(mgr.recordedEventCount()) + " (standby, unsaved)";
+                break;
+            case Mode::Playing:
+                eventsText = "Events: " + std::to_string(mgr.playedEventCount()) + "/"
+                              + std::to_string(mgr.totalArmedEventCount()) + " (playing)";
+                break;
+            default:
+                eventsText = "Events: " + std::to_string(mgr.totalArmedEventCount()) + " armed";
+                break;
+        }
+        m_fields->eventsLabel->setString(eventsText.c_str());
     }
 
     void handleButton(bool down, int button, bool isPlayer1) {
         // Record BEFORE calling through, so the timing recorded matches
-        // the step we were just ticked on. This is a no-op unless we're
+        // the tick we were just ticked on. This is a no-op unless we're
         // actively in Recording mode — in particular it does nothing
         // while on Standby (an attempt already captured, waiting on Save)
         // or during Playing (fed-back input isn't re-recorded).

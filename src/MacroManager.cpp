@@ -40,8 +40,10 @@ static std::string sanitizeFilename(const std::string& raw) {
 void MacroManager::startRecording() {
     m_mode = Mode::Recording;
     m_step = 0;
+    m_accumulator = 0.0;
     m_buffer = MacroData{};
     m_buffer.levelName = m_levelName;
+    m_buffer.ticksPerSecond = static_cast<uint32_t>(kTicksPerSecond);
     log::info("MacroBot: recording started for level '{}'", m_levelName);
 }
 
@@ -52,12 +54,14 @@ void MacroManager::onLevelReset() {
         // wait for the user to explicitly Save.
         m_buffer.totalSteps = m_step;
         m_mode = Mode::Standby;
-        log::info("MacroBot: attempt finished ({} events) — waiting for Save", m_buffer.events.size());
+        log::info("MacroBot: attempt finished ({} events, {} ticks) — waiting for Save",
+                   m_buffer.events.size(), m_step);
     }
     if (m_mode == Mode::Playing) {
         m_playCursor = 0;
     }
     m_step = 0;
+    m_accumulator = 0.0;
 }
 
 void MacroManager::saveStandbyMacro() {
@@ -116,6 +120,10 @@ bool MacroManager::loadMacroFromFile(const std::filesystem::path& path) {
     m_armed = data;
     m_armedDisplayName = path.stem().string();
     log::info("MacroBot: loaded macro '{}' ({} events)", m_armedDisplayName.value(), data.events.size());
+    if (data.ticksPerSecond != static_cast<uint32_t>(kTicksPerSecond)) {
+        log::warn("MacroBot: '{}' was recorded at {} ticks/sec but this build plays back at {} — timing will be off",
+                   m_armedDisplayName.value(), data.ticksPerSecond, static_cast<uint32_t>(kTicksPerSecond));
+    }
     return true;
 }
 
@@ -127,6 +135,7 @@ void MacroManager::startPlaying() {
     if (!m_armed.has_value()) return;
     m_mode = Mode::Playing;
     m_step = 0;
+    m_accumulator = 0.0;
     m_playCursor = 0;
 }
 
@@ -137,22 +146,32 @@ void MacroManager::stopPlaying() {
     m_playCursor = 0;
 }
 
-void MacroManager::onPhysicsStep(const std::function<void(uint8_t button, bool player1, bool down)>& fireInput) {
-    if (m_mode == Mode::Playing && m_armed.has_value()) {
-        const auto& events = m_armed->events;
-        while (m_playCursor < events.size() && events[m_playCursor].step <= m_step) {
-            const auto& ev = events[m_playCursor];
-            fireInput(ev.button, ev.player1, ev.down);
-            m_playCursor++;
-        }
-        if (m_playCursor >= events.size()) {
-            // Reached the end of the macro; stop consuming further steps
-            // but leave the level running normally.
-            m_mode = Mode::Idle;
-        }
-    }
+void MacroManager::onPhysicsStep(float dt, const std::function<void(uint8_t button, bool player1, bool down)>& fireInput) {
+    // Guard against a huge dt (e.g. the game was backgrounded) turning
+    // into thousands of ticks in one call.
+    if (dt > 0.25f) dt = 0.25f;
 
-    m_step++;
+    m_accumulator += dt;
+
+    while (m_accumulator >= kSecondsPerTick) {
+        m_accumulator -= kSecondsPerTick;
+
+        if (m_mode == Mode::Playing && m_armed.has_value()) {
+            const auto& events = m_armed->events;
+            while (m_playCursor < events.size() && events[m_playCursor].step <= m_step) {
+                const auto& ev = events[m_playCursor];
+                fireInput(ev.button, ev.player1, ev.down);
+                m_playCursor++;
+            }
+            if (m_playCursor >= events.size()) {
+                // Reached the end of the macro; stop consuming further
+                // ticks but leave the level running normally.
+                m_mode = Mode::Idle;
+            }
+        }
+
+        m_step++;
+    }
 }
 
 void MacroManager::recordInput(int button, bool player1, bool down) {

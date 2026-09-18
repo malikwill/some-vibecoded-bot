@@ -12,7 +12,8 @@ namespace macrobot {
 void beginPlayback();
 
 // The popup that opens when the circular button in the pause menu is
-// pressed. Four buttons: Record, Save, Play, Load.
+// pressed. Four buttons (Record, Save, Play, Load) plus a Debug HUD
+// toggle that shows/hides the in-level frame + event counters.
 //
 // NOTE: current Geode (5.x) ui/Popup.hpp exposes a plain, non-template
 // `geode::Popup` (subclass of FLAlertLayer) — not the older `Popup<Args...>`
@@ -28,10 +29,12 @@ protected:
     void onSave(CCObject*);
     void onPlay(CCObject*);
     void onLoad(CCObject*);
+    void onToggleHud(CCObject*);
 
     CCMenuItemSpriteExtra* m_recordBtn = nullptr;
     CCMenuItemSpriteExtra* m_saveBtn = nullptr;
     CCMenuItemSpriteExtra* m_playBtn = nullptr;
+    CCMenuItemToggler* m_hudToggle = nullptr;
     CCLabelBMFont* m_statusLabel = nullptr;
 
     static BotMenuPopup* s_current;

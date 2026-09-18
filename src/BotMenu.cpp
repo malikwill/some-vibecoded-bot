@@ -85,7 +85,7 @@ void BotMenuPopup::onClose(CCObject* pSender) {
 }
 
 bool BotMenuPopup::init() {
-    if (!Popup::init(260.f, 210.f)) return false;
+    if (!Popup::init(260.f, 240.f)) return false;
 
     s_current = this;
     this->setTitle("MacroBot");
@@ -101,7 +101,7 @@ bool BotMenuPopup::init() {
     m_recordBtn = CCMenuItemSpriteExtra::create(
         recordLabel, this, menu_selector(BotMenuPopup::onRecord)
     );
-    m_recordBtn->setPosition({winSize.width * 0.5f - 60.f, winSize.height * 0.62f});
+    m_recordBtn->setPosition({winSize.width * 0.5f - 60.f, winSize.height * 0.68f});
     menu->addChild(m_recordBtn);
 
     // --- Save button (top-right) --------------------------------------
@@ -109,29 +109,45 @@ bool BotMenuPopup::init() {
     m_saveBtn = CCMenuItemSpriteExtra::create(
         saveLabel, this, menu_selector(BotMenuPopup::onSave)
     );
-    m_saveBtn->setPosition({winSize.width * 0.5f + 60.f, winSize.height * 0.62f});
+    m_saveBtn->setPosition({winSize.width * 0.5f + 60.f, winSize.height * 0.68f});
     menu->addChild(m_saveBtn);
 
-    // --- Play button (bottom-left) ------------------------------------
+    // --- Play button (mid-left) ------------------------------------
     auto playLabel = ButtonSprite::create("Play", "bigFont.fnt", "GJ_button_01.png", 0.75f);
     m_playBtn = CCMenuItemSpriteExtra::create(
         playLabel, this, menu_selector(BotMenuPopup::onPlay)
     );
-    m_playBtn->setPosition({winSize.width * 0.5f - 60.f, winSize.height * 0.38f});
+    m_playBtn->setPosition({winSize.width * 0.5f - 60.f, winSize.height * 0.46f});
     menu->addChild(m_playBtn);
 
-    // --- Load button (bottom-right) -----------------------------------
+    // --- Load button (mid-right) -----------------------------------
     auto loadLabel = ButtonSprite::create("Load", "bigFont.fnt", "GJ_button_01.png", 0.75f);
     auto loadBtn = CCMenuItemSpriteExtra::create(
         loadLabel, this, menu_selector(BotMenuPopup::onLoad)
     );
-    loadBtn->setPosition({winSize.width * 0.5f + 60.f, winSize.height * 0.38f});
+    loadBtn->setPosition({winSize.width * 0.5f + 60.f, winSize.height * 0.46f});
     menu->addChild(loadBtn);
+
+    // --- Debug HUD toggle (shows in-level frame/event counters) --------
+    auto offSpr = CCSprite::createWithSpriteFrameName("GJ_checkOff_001.png");
+    auto onSpr = CCSprite::createWithSpriteFrameName("GJ_checkOn_001.png");
+    m_hudToggle = CCMenuItemToggler::create(
+        offSpr, onSpr, this, menu_selector(BotMenuPopup::onToggleHud)
+    );
+    m_hudToggle->setScale(0.7f);
+    m_hudToggle->setPosition({winSize.width * 0.5f - 60.f, winSize.height * 0.27f});
+    menu->addChild(m_hudToggle);
+
+    auto hudLabel = CCLabelBMFont::create("Debug HUD", "chatFont.fnt");
+    hudLabel->setScale(0.5f);
+    hudLabel->setAnchorPoint({0.f, 0.5f});
+    hudLabel->setPosition({winSize.width * 0.5f - 45.f, winSize.height * 0.27f});
+    m_mainLayer->addChild(hudLabel);
 
     // --- Status label ----------------------------------------------
     m_statusLabel = CCLabelBMFont::create("", "chatFont.fnt");
-    m_statusLabel->setScale(0.55f);
-    m_statusLabel->setPosition({winSize.width * 0.5f, winSize.height * 0.16f});
+    m_statusLabel->setScale(0.5f);
+    m_statusLabel->setPosition({winSize.width * 0.5f, winSize.height * 0.12f});
     m_statusLabel->setID("macrobot-status-label");
     m_mainLayer->addChild(m_statusLabel);
 
@@ -158,6 +174,10 @@ void BotMenuPopup::refreshButtonStates() {
     if (m_playBtn) {
         m_playBtn->setEnabled(mgr.hasArmedMacro());
         m_playBtn->setOpacity(mgr.hasArmedMacro() ? 255 : 120);
+    }
+
+    if (m_hudToggle) {
+        m_hudToggle->toggle(mgr.isDebugHudEnabled());
     }
 
     if (m_statusLabel) {
@@ -210,6 +230,13 @@ void BotMenuPopup::onPlay(CCObject*) {
 
 void BotMenuPopup::onLoad(CCObject*) {
     LoadPopup::create()->show();
+}
+
+void BotMenuPopup::onToggleHud(CCObject*) {
+    auto& mgr = MacroManager::get();
+    mgr.setDebugHudEnabled(!mgr.isDebugHudEnabled());
+    // CCMenuItemToggler already flips its own visual state on click; we
+    // don't need to touch m_hudToggle here.
 }
 
 }

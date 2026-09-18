@@ -22,6 +22,16 @@ class MacroManager {
 public:
     static MacroManager& get();
 
+    // Fixed virtual clock rate every recorded step is measured against —
+    // same approach real .gdr/.gdr2-style replay formats use: a
+    // time-accumulated, FPS-independent tick rate, NOT "one tick per
+    // PlayLayer::update() call" (update() fires once per rendered frame,
+    // which varies with the device's real framerate — that mismatch
+    // between a recording session's frame timing and a playback
+    // session's frame timing is what made playback not work at all).
+    static constexpr double kTicksPerSecond = 240.0;
+    static constexpr double kSecondsPerTick = 1.0 / kTicksPerSecond;
+
     // --- Transport controls, called from the bot menu UI ---------------
 
     // Begins capturing input for a fresh attempt. Discards anything
@@ -50,11 +60,24 @@ public:
     bool hasPendingSave() const { return m_mode == Mode::Standby; }
     std::optional<std::string> armedMacroName() const;
 
+    // --- Debug HUD (toggleable frame + event counters) -----------------
+    bool isDebugHudEnabled() const { return m_debugHudEnabled; }
+    void setDebugHudEnabled(bool enabled) { m_debugHudEnabled = enabled; }
+
+    uint64_t currentStep() const { return m_step; }
+    size_t recordedEventCount() const { return m_buffer.events.size(); }
+    size_t playedEventCount() const { return m_playCursor; }
+    size_t totalArmedEventCount() const { return m_armed ? m_armed->events.size() : 0; }
+
     // --- Hooks into these from PlayLayer, see main.cpp ------------------
-    // Called once per physics tick (i.e. once per PlayLayer::update call).
-    // Advances the step counter and, if playing back, fires any due events
-    // via the callback.
-    void onPhysicsStep(const std::function<void(uint8_t button, bool player1, bool down)>& fireInput);
+    // Called once per rendered frame (once per PlayLayer::update call)
+    // with that frame's real delta time. Internally accumulates dt at a
+    // fixed kTicksPerSecond rate and advances 0, 1, or several ticks —
+    // exactly as many as actually elapsed — so both recording and
+    // playback are keyed to the same virtual clock regardless of the
+    // device's real framerate. Fires any due playback events via the
+    // callback, once per tick consumed.
+    void onPhysicsStep(float dt, const std::function<void(uint8_t button, bool player1, bool down)>& fireInput);
 
     // Called from the handleButton hook. Only stores the transition while
     // actively Recording; no-op in every other mode (in particular, a
@@ -78,7 +101,9 @@ private:
     Mode m_mode = Mode::Idle;
     std::string m_levelName;
     uint64_t m_step = 0;
+    double m_accumulator = 0.0;    // seconds of dt not yet converted to ticks
     size_t m_playCursor = 0;
+    bool m_debugHudEnabled = false;
 
     MacroData m_buffer;                    // recording / standby buffer
     std::optional<MacroData> m_armed;      // loaded / just-saved, ready to play

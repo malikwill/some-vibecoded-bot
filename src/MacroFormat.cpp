@@ -25,6 +25,7 @@ std::vector<uint8_t> serializeMacro(const MacroData& data) {
     out.insert(out.end(), kMagic, kMagic + 4);
     pushRaw<uint16_t>(out, kFormatVersion);
     pushRaw<uint16_t>(out, 0); // reserved
+    pushRaw<uint32_t>(out, data.ticksPerSecond);
 
     pushRaw<uint32_t>(out, static_cast<uint32_t>(data.levelName.size()));
     out.insert(out.end(), data.levelName.begin(), data.levelName.end());
@@ -54,6 +55,9 @@ bool deserializeMacro(const std::vector<uint8_t>& bytes, MacroData& out) {
     if (!readRaw(bytes, cursor, reserved)) return false;
     if (version != kFormatVersion) return false;
 
+    uint32_t ticksPerSecond = 240;
+    if (!readRaw(bytes, cursor, ticksPerSecond)) return false;
+
     uint32_t nameLen = 0;
     if (!readRaw(bytes, cursor, nameLen)) return false;
     if (cursor + nameLen > bytes.size()) return false;
@@ -69,6 +73,7 @@ bool deserializeMacro(const std::vector<uint8_t>& bytes, MacroData& out) {
     MacroData result;
     result.levelName = std::move(levelName);
     result.totalSteps = totalSteps;
+    result.ticksPerSecond = ticksPerSecond;
     result.events.reserve(eventCount);
 
     for (uint32_t i = 0; i < eventCount; i++) {
