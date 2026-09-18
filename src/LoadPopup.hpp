@@ -15,7 +15,7 @@ namespace macrobot {
 // See BotMenu.hpp for the note on the current (non-template) geode::Popup API.
 class LoadPopup : public geode::Popup {
 protected:
-    bool init();
+    bool init() override;
     void onPick(CCObject* sender);
 
     std::vector<std::filesystem::path> m_files;

@@ -20,8 +20,8 @@ void beginPlayback();
 // first) rather than a `setup()` virtual. See docs.geode-sdk.org/tutorials/popup.
 class BotMenuPopup : public geode::Popup {
 protected:
-    bool init();
-    void onClose() override;
+    bool init() override;
+    void onClose(CCObject* pSender) override;
     void refreshButtonStates();
 
     void onRecord(CCObject*);

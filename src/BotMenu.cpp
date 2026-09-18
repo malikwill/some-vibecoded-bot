@@ -54,11 +54,11 @@ void BotMenuPopup::closeIfOpen() {
     }
 }
 
-void BotMenuPopup::onClose() {
+void BotMenuPopup::onClose(CCObject* pSender) {
     if (s_current == this) {
         s_current = nullptr;
     }
-    Popup::onClose();
+    Popup::onClose(pSender);
 }
 
 bool BotMenuPopup::init() {
