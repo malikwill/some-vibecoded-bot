@@ -1,0 +1,71 @@
+name: Build
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Android64
+            runs-on: ubuntu-latest
+            target: Android64
+          - name: Windows
+            runs-on: windows-latest
+            target: Win64
+          - name: macOS
+            runs-on: macos-latest
+            target: MacOS
+
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runs-on }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build MacroBot
+        uses: geode-sdk/build-geode-mod@main
+        id: build
+        with:
+          sdk: latest
+          cli: latest
+          target: ${{ matrix.target }}
+          combine: true
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MacroBot-${{ matrix.name }}
+          path: ${{ steps.build.outputs.build-output }}
+
+  combine:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all platform builds
+        uses: actions/download-artifact@v4
+        with:
+          path: builds
+
+      - name: Combine into a single .geode package
+        uses: geode-sdk/build-geode-mod@main
+        id: combine
+        with:
+          combine: true
+          path: builds
+
+      - name: Upload combined .geode
+        uses: actions/upload-artifact@v4
+        with:
+          name: MacroBot.geode
+          path: ${{ steps.combine.outputs.build-output }}
