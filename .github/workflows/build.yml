@@ -9,22 +9,8 @@ on:
 
 jobs:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: Android64
-            runs-on: ubuntu-latest
-            target: Android64
-          - name: Windows
-            runs-on: windows-latest
-            target: Win64
-          - name: macOS
-            runs-on: macos-latest
-            target: MacOS
-
-    name: ${{ matrix.name }}
-    runs-on: ${{ matrix.runs-on }}
+    name: Android64
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -37,35 +23,17 @@ jobs:
         with:
           sdk: latest
           cli: latest
-          target: ${{ matrix.target }}
-          combine: true
+          target: Android64
 
-      - name: Upload build artifact
+      - name: Upload .geode artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MacroBot-${{ matrix.name }}
+          name: MacroBot-Android64
           path: ${{ steps.build.outputs.build-output }}
 
-  combine:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download all platform builds
-        uses: actions/download-artifact@v4
-        with:
-          path: builds
-
-      - name: Combine into a single .geode package
-        uses: geode-sdk/build-geode-mod@main
-        id: combine
-        with:
-          combine: true
-          path: builds
-
-      - name: Upload combined .geode
-        uses: actions/upload-artifact@v4
-        with:
-          name: MacroBot.geode
-          path: ${{ steps.combine.outputs.build-output }}
+# NOTE: this mod is Android-x64-only (per mod.json's "gd" block, which only
+# declares an android version). If you later want Windows/macOS builds too,
+# add "win"/"mac" entries under "gd" in mod.json first, then re-add matrix
+# entries for Win64/MacOS here — building those without the matching "gd"
+# entry fails at CMake configure time with:
+#   "string sub-command JSON member 'gd win' not found."
