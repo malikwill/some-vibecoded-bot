@@ -1,0 +1,18 @@
+{
+    "geode": "4.4.0",
+    "version": "v1.0.0-beta.1",
+    "id": "yourname.macrobot",
+    "name": "MacroBot",
+    "developer": "yourname",
+    "description": "Record and replay frame-perfect input macros. Circular menu in the pause screen: Record, Play, Load.",
+    "repository": "https://github.com/yourname/MacroBot",
+    "tags": ["gameplay", "utility", "offline"],
+    "gd": {
+        "android": "2.2081"
+    },
+    "resources": {
+        "sprites": [
+            "resources/botButton.png"
+        ]
+    }
+}
