@@ -9,16 +9,39 @@ using namespace geode::prelude;
 namespace macrobot {
 
 // Finds an active PauseLayer in the scene (if the bot menu was opened
-// from the pause screen) and resumes gameplay, so Play actually starts
-// running immediately instead of leaving the game frozen behind popups.
-static void resumeIfPaused() {
+// from the pause screen).
+static PauseLayer* findPauseLayer() {
     auto pl = PlayLayer::get();
-    if (!pl || !pl->getParent()) return;
+    if (!pl || !pl->getParent()) return nullptr;
     for (auto child : CCArrayExt<CCNode*>(pl->getParent()->getChildren())) {
         if (auto pause = typeinfo_cast<PauseLayer*>(child)) {
-            pause->onResume(nullptr);
-            return;
+            return pause;
         }
+    }
+    return nullptr;
+}
+
+// Resumes gameplay if we're currently paused.
+static void resumeIfPaused() {
+    if (auto pause = findPauseLayer()) {
+        pause->onResume(nullptr);
+    }
+}
+
+// Record should "automatically go into practice mode and start the
+// session": if we're not already in practice mode, clicking GD's own
+// practice-mode pause button both enables it and resumes gameplay
+// (exactly like a manual click would). If practice mode is already on,
+// just resume.
+static void enterPracticeAndResume() {
+    auto pl = PlayLayer::get();
+    auto pause = findPauseLayer();
+    if (!pl || !pause) return;
+
+    if (!pl->m_isPracticeMode) {
+        pause->onPracticeMode(nullptr);
+    } else {
+        pause->onResume(nullptr);
     }
 }
 
@@ -62,52 +85,55 @@ void BotMenuPopup::onClose(CCObject* pSender) {
 }
 
 bool BotMenuPopup::init() {
-    if (!Popup::init(240.f, 190.f)) return false;
+    if (!Popup::init(260.f, 210.f)) return false;
 
     s_current = this;
     this->setTitle("MacroBot");
 
     auto winSize = m_mainLayer->getContentSize();
-    auto& mgr = MacroManager::get();
 
     auto menu = CCMenu::create();
     menu->setPosition({0.f, 0.f});
     m_mainLayer->addChild(menu);
 
-    // --- Record button ---------------------------------------------------
-    auto recordLabel = ButtonSprite::create("Record", "bigFont.fnt", "GJ_button_01.png", 0.8f);
+    // --- Record button (top-left) ------------------------------------
+    auto recordLabel = ButtonSprite::create("Record", "bigFont.fnt", "GJ_button_01.png", 0.75f);
     m_recordBtn = CCMenuItemSpriteExtra::create(
         recordLabel, this, menu_selector(BotMenuPopup::onRecord)
     );
-    m_recordBtn->setPosition({winSize.width * 0.5f, winSize.height * 0.62f});
+    m_recordBtn->setPosition({winSize.width * 0.5f - 60.f, winSize.height * 0.62f});
     menu->addChild(m_recordBtn);
 
-    // --- Play button -------------------------------------------------------
-    auto playLabel = ButtonSprite::create("Play", "bigFont.fnt", "GJ_button_01.png", 0.8f);
+    // --- Save button (top-right) --------------------------------------
+    auto saveLabel = ButtonSprite::create("Save", "bigFont.fnt", "GJ_button_02.png", 0.75f);
+    m_saveBtn = CCMenuItemSpriteExtra::create(
+        saveLabel, this, menu_selector(BotMenuPopup::onSave)
+    );
+    m_saveBtn->setPosition({winSize.width * 0.5f + 60.f, winSize.height * 0.62f});
+    menu->addChild(m_saveBtn);
+
+    // --- Play button (bottom-left) ------------------------------------
+    auto playLabel = ButtonSprite::create("Play", "bigFont.fnt", "GJ_button_01.png", 0.75f);
     m_playBtn = CCMenuItemSpriteExtra::create(
         playLabel, this, menu_selector(BotMenuPopup::onPlay)
     );
-    m_playBtn->setPosition({winSize.width * 0.5f - 55.f, winSize.height * 0.32f});
+    m_playBtn->setPosition({winSize.width * 0.5f - 60.f, winSize.height * 0.38f});
     menu->addChild(m_playBtn);
 
-    // --- Load button -------------------------------------------------------
-    auto loadLabel = ButtonSprite::create("Load", "bigFont.fnt", "GJ_button_01.png", 0.8f);
+    // --- Load button (bottom-right) -----------------------------------
+    auto loadLabel = ButtonSprite::create("Load", "bigFont.fnt", "GJ_button_01.png", 0.75f);
     auto loadBtn = CCMenuItemSpriteExtra::create(
         loadLabel, this, menu_selector(BotMenuPopup::onLoad)
     );
-    loadBtn->setPosition({winSize.width * 0.5f + 55.f, winSize.height * 0.32f});
+    loadBtn->setPosition({winSize.width * 0.5f + 60.f, winSize.height * 0.38f});
     menu->addChild(loadBtn);
 
-    // --- Status label --------------------------------------------------
-    std::string status = "No macro loaded";
-    if (auto name = mgr.armedMacroName()) {
-        status = "Loaded: " + *name;
-    }
-    auto label = CCLabelBMFont::create(status.c_str(), "chatFont.fnt");
-    label->setScale(0.55f);
-    label->setPosition({winSize.width * 0.5f, winSize.height * 0.15f});
-    label->setID("macrobot-status-label");
-    m_mainLayer->addChild(label);
+    // --- Status label ----------------------------------------------
+    m_statusLabel = CCLabelBMFont::create("", "chatFont.fnt");
+    m_statusLabel->setScale(0.55f);
+    m_statusLabel->setPosition({winSize.width * 0.5f, winSize.height * 0.16f});
+    m_statusLabel->setID("macrobot-status-label");
+    m_mainLayer->addChild(m_statusLabel);
 
     refreshButtonStates();
     return true;
@@ -115,31 +141,65 @@ bool BotMenuPopup::init() {
 
 void BotMenuPopup::refreshButtonStates() {
     auto& mgr = MacroManager::get();
-    bool recording = (mgr.mode() == Mode::Recording);
+    auto mode = mgr.mode();
 
     if (m_recordBtn) {
         if (auto spr = typeinfo_cast<ButtonSprite*>(m_recordBtn->getNormalImage())) {
-            spr->setString(recording ? "Stop" : "Record");
+            spr->setString(mode == Mode::Recording ? "Stop" : "Record");
         }
     }
+
+    if (m_saveBtn) {
+        bool canSave = mgr.hasPendingSave();
+        m_saveBtn->setEnabled(canSave);
+        m_saveBtn->setOpacity(canSave ? 255 : 120);
+    }
+
     if (m_playBtn) {
         m_playBtn->setEnabled(mgr.hasArmedMacro());
         m_playBtn->setOpacity(mgr.hasArmedMacro() ? 255 : 120);
+    }
+
+    if (m_statusLabel) {
+        std::string status;
+        switch (mode) {
+            case Mode::Recording: status = "Recording... play the attempt"; break;
+            case Mode::Standby:   status = "Attempt captured - tap Save"; break;
+            default: {
+                if (auto name = mgr.armedMacroName()) {
+                    status = "Loaded: " + *name;
+                } else {
+                    status = "No macro loaded";
+                }
+                break;
+            }
+        }
+        m_statusLabel->setString(status.c_str());
     }
 }
 
 void BotMenuPopup::onRecord(CCObject*) {
     auto& mgr = MacroManager::get();
-    if (mgr.mode() == Mode::Recording) {
+    auto mode = mgr.mode();
+
+    if (mode == Mode::Recording || mode == Mode::Standby) {
+        // Starting over discards whatever was captured/pending.
         mgr.cancelRecording();
-    } else {
-        if (auto pl = PlayLayer::get()) {
-            if (auto level = pl->m_level) {
-                mgr.setLevelName(level->m_levelName);
-            }
-        }
-        mgr.startRecording();
     }
+
+    if (auto pl = PlayLayer::get()) {
+        if (auto level = pl->m_level) {
+            mgr.setLevelName(level->m_levelName);
+        }
+    }
+    mgr.startRecording();
+
+    enterPracticeAndResume();
+    this->keyBackClicked();
+}
+
+void BotMenuPopup::onSave(CCObject*) {
+    MacroManager::get().saveStandbyMacro();
     refreshButtonStates();
 }
 

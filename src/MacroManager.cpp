@@ -46,23 +46,22 @@ void MacroManager::startRecording() {
 }
 
 void MacroManager::onLevelReset() {
-    m_step = 0;
     if (m_mode == Mode::Recording) {
-        // Each practice retry restarts the recording — only the final
-        // attempt is kept, matching what the player actually wants played
-        // back (their successful/latest run).
-        m_buffer = MacroData{};
-        m_buffer.levelName = m_levelName;
+        // The attempt that was just running is what we captured — the
+        // session is now "finished". Stop capturing further attempts and
+        // wait for the user to explicitly Save.
+        m_buffer.totalSteps = m_step;
+        m_mode = Mode::Standby;
+        log::info("MacroBot: attempt finished ({} events) — waiting for Save", m_buffer.events.size());
     }
     if (m_mode == Mode::Playing) {
         m_playCursor = 0;
     }
+    m_step = 0;
 }
 
-void MacroManager::finishRecordingAndSave() {
-    if (m_mode != Mode::Recording) return;
-
-    m_buffer.totalSteps = m_step;
+void MacroManager::saveStandbyMacro() {
+    if (m_mode != Mode::Standby) return;
 
     auto base = sanitizeFilename(m_buffer.levelName.empty() ? "macro" : m_buffer.levelName);
     auto dir = macrosDir();
@@ -83,10 +82,11 @@ void MacroManager::finishRecordingAndSave() {
         log::info("MacroBot: saved macro to {}", path.string());
     } else {
         log::error("MacroBot: failed to write macro file {}", path.string());
+        return;
     }
 
-    // Arm what we just recorded so hitting Play immediately after Record
-    // just works without needing to reload it from disk.
+    // Arm what we just saved so hitting Play immediately after Save just
+    // works without needing to reload it from disk.
     m_armed = m_buffer;
     m_armedDisplayName = m_buffer.levelName;
 
@@ -156,6 +156,8 @@ void MacroManager::onPhysicsStep(const std::function<void(uint8_t button, bool p
 }
 
 void MacroManager::recordInput(int button, bool player1, bool down) {
+    // Only capture while actively Recording — this is a no-op while on
+    // Standby (waiting for Save) or in any other mode, by design.
     if (m_mode != Mode::Recording) return;
     InputEvent ev;
     ev.step = m_step;

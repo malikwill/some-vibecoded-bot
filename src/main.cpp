@@ -49,24 +49,31 @@ class $modify(MacroBotPlayLayer, PlayLayer) {
 
     void handleButton(bool down, int button, bool isPlayer1) {
         // Record BEFORE calling through, so the timing recorded matches
-        // the step we were just ticked on.
+        // the step we were just ticked on. This is a no-op unless we're
+        // actively in Recording mode — in particular it does nothing
+        // while on Standby (an attempt already captured, waiting on Save)
+        // or during Playing (fed-back input isn't re-recorded).
         MacroManager::get().recordInput(button, isPlayer1, down);
         PlayLayer::handleButton(down, button, isPlayer1);
     }
 
     void resetLevel() {
         PlayLayer::resetLevel();
+        // If we were Recording, this is "the attempt/session finished":
+        // MacroManager moves to Standby (keeps the buffer, stops
+        // capturing further attempts) until the user taps Save.
         MacroManager::get().onLevelReset();
     }
 
     void onQuit() {
-        // Leaving the level (back to the level select / editor) is what
-        // we treat as "the practice session is finished" — auto-save
-        // whatever was being recorded, named after the level.
-        if (MacroManager::get().mode() == Mode::Recording) {
-            MacroManager::get().finishRecordingAndSave();
+        // No auto-save anymore: leaving the level while Recording or on
+        // Standby (unsaved) discards whatever was captured. Saving is
+        // only ever done explicitly via the Save button.
+        auto mode = MacroManager::get().mode();
+        if (mode == Mode::Recording || mode == Mode::Standby) {
+            MacroManager::get().cancelRecording();
         }
-        if (MacroManager::get().mode() == Mode::Playing) {
+        if (mode == Mode::Playing) {
             MacroManager::get().stopPlaying();
         }
         PlayLayer::onQuit();
@@ -75,13 +82,19 @@ class $modify(MacroBotPlayLayer, PlayLayer) {
 
 // -----------------------------------------------------------------------
 // PauseLayer hook: adds the circular button that opens the bot menu.
+//
+// Added directly into PauseLayer's own `m_buttonMenu` (rather than a
+// separate menu positioned at a hardcoded corner) so it takes its place
+// in the existing button row/grid instead of overlapping whatever GD
+// already put in that corner. `m_buttonMenu` has a Layout assigned
+// (Row/Grid depending on GD version) that re-flows every child's
+// position in order each time `updateLayout()` is called — so our button
+// lands in the next free slot automatically.
 // -----------------------------------------------------------------------
 
 class $modify(MacroBotPauseLayer, PauseLayer) {
     void customSetup() {
         PauseLayer::customSetup();
-
-        auto winSize = CCDirector::sharedDirector()->getWinSize();
 
         auto sprite = CCSprite::create("botButton.png"_spr);
         if (!sprite) {
@@ -96,12 +109,23 @@ class $modify(MacroBotPauseLayer, PauseLayer) {
         );
         btn->setID("macrobot-open-btn"_spr);
 
-        auto menu = CCMenu::create();
-        menu->setID("macrobot-menu"_spr);
-        menu->addChild(btn);
-        menu->setPosition({winSize.width - 35.f, winSize.height - 35.f});
-        menu->setZOrder(100);
-        this->addChild(menu);
+        if (m_buttonMenu) {
+            m_buttonMenu->addChild(btn);
+            // Re-flows every button in m_buttonMenu (existing ones plus
+            // ours) according to its Layout, so ours takes the next open
+            // slot instead of sitting wherever a fixed position would
+            // have placed it.
+            m_buttonMenu->updateLayout();
+        } else {
+            // Extremely unlikely fallback: no button menu found at all.
+            // Place independently so the mod still works.
+            auto winSize = CCDirector::sharedDirector()->getWinSize();
+            auto menu = CCMenu::create();
+            menu->setID("macrobot-menu"_spr);
+            menu->addChild(btn);
+            menu->setPosition({winSize.width - 35.f, winSize.height - 35.f});
+            this->addChild(menu);
+        }
     }
 
     void onOpenBotMenu(CCObject*) {
