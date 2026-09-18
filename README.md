@@ -10,11 +10,11 @@ macros, built for **GD 2.2081 / Geode SDK 5.10.1 / Android x64**.
   there). Tapping it opens the bot menu: **Record**, **Save**, **Play**,
   **Load**.
 - **Record** — automatically enters practice mode and resumes gameplay.
-  Every button press/release is captured against the exact physics step
-  it happened on (not wall-clock time), so playback is frame-perfect
-  regardless of the device's framerate. The moment that attempt ends
-  (the level resets), capturing stops — further attempts are **not**
-  recorded until you act.
+  Every button press/release is captured against a fixed-rate virtual
+  clock tick (240 ticks/sec), not wall-clock time or render-frame count,
+  so playback is frame-perfect regardless of the device's framerate. The
+  moment that attempt ends (the level resets), capturing stops — further
+  attempts are **not** recorded until you act.
 - **Save** — only enabled once an attempt has been captured and finished.
   Writes it to disk under the level's name and arms it for Play. Tapping
   Record again instead discards the pending capture and starts fresh.
@@ -22,16 +22,30 @@ macros, built for **GD 2.2081 / Geode SDK 5.10.1 / Android x64**.
   the attempt.
 - **Load** — opens a picker listing every saved macro. Choosing one
   loads it and immediately starts playing it (auto-clicks Play for you).
+- **Debug HUD** — a checkbox in the bot menu toggles a small on-screen
+  overlay (top-left of the level) showing the live tick counter and an
+  event counter (recorded count while Recording, played/total while
+  Playing, armed count otherwise), so what recording/playback is doing
+  is actually visible instead of a black box.
 
 ## Macro format
 
 Macros are saved as `.mbf` (**MacroBot Format**) files in the mod's save
 folder (`.../geode/mods/<mod-id>/macros/`). The format intentionally
-favors **accuracy over file size**: every input transition is stored as
-`(physics step, button, player, pressed)`. It reuses the same "record
-discrete transitions rather than continuous per-frame state" approach as
-`.gdr2`-style macro files, but with its own simple, fully-documented
-binary layout — see `src/MacroFormat.hpp` for the exact byte layout.
+favors **accuracy over file size**, using the same underlying approach as
+real `.gdr`/`.gdr2`-style replay files: every input transition is stored
+as `(tick, button, player, pressed)`, where `tick` is an index into a
+**fixed-rate virtual clock** (`MacroManager::kTicksPerSecond`, currently
+240/sec) — not a count of how many times `PlayLayer::update()` happened
+to fire. `update()` runs once per rendered frame, so its call frequency
+varies with the device's real framerate; keying recorded steps to that
+was the actual bug that made playback not work at all, since a recording
+session and a playback session never produce identical `update()` timing.
+The fixed tick rate is accumulated from real `dt` each frame (see
+`MacroManager::onPhysicsStep`), giving both sides the same FPS-independent
+timeline. The file header also embeds the tick rate it was recorded at,
+for forward-compatibility — see `src/MacroFormat.hpp` for the exact byte
+layout.
 
 ## Project layout
 

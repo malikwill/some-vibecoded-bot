@@ -1,5 +1,29 @@
 # Changelog
 
+## v1.1.0-beta.3 (major update — playback fix)
+- **Fixed macro playback not working at all.** The actual bug: `m_step`
+  was incremented once per `PlayLayer::update()` call — but `update()`
+  fires once per rendered frame, at whatever framerate the device
+  happens to be running. A recording session and a later playback
+  session never produce the same sequence/timing of `update()` calls
+  (different FPS, vsync jitter, lag), so the recorded step indices never
+  lined up with playback's step indices — inputs fired at the wrong
+  moments or not at all.
+- Replaced it with the same approach real `.gdr`/`.gdr2`-style replay
+  formats use: a **fixed-rate virtual clock** (`MacroManager::kTicksPerSecond`,
+  240 ticks/sec) that `update()`'s real `dt` is accumulated into, advancing
+  0, 1, or several ticks per call as time actually elapses. Both recording
+  and playback are now keyed to this same FPS-independent clock instead
+  of to `update()` call count.
+- `.mbf` format bumped to version 2: now embeds `ticksPerSecond` in the
+  header (metadata for forward-compatibility, matching how real replay
+  formats record their own clock rate) and warns in the log if a loaded
+  macro's rate doesn't match the current build's.
+- Added a **toggleable debug HUD** (checkbox in the bot menu) showing a
+  live frame counter and an event counter in the top-left of the level —
+  event count while recording, played/total while playing, armed count
+  otherwise — so it's actually visible what recording/playback is doing.
+
 ## v1.1.0-beta.2
 - Fixed the build error: `PauseLayer` has no `m_buttonMenu` field —
   confirmed against the generated bindings, it only exposes
