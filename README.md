@@ -5,15 +5,21 @@ macros, built for **GD 2.2081 / Geode SDK 5.10.1 / Android x64**.
 
 ## What it does
 
-- A circular button is added to the **pause menu**. Tapping it opens the
-  bot menu with three controls: **Record**, **Play**, **Load**.
-- **Record** — press it, then enter practice mode. Every button
-  press/release is captured against the exact physics step it happened
-  on (not wall-clock time), so playback is frame-perfect regardless of
-  the device's framerate. When you finish the practice session (leave
-  the level), the macro is **auto-saved** under the level's name.
-- **Play** — replays the currently loaded/just-recorded macro from the
-  start of the attempt.
+- A circular button is added to the **pause menu**, in its rightful spot
+  in the existing button row (not overlapping whatever GD already has
+  there). Tapping it opens the bot menu: **Record**, **Save**, **Play**,
+  **Load**.
+- **Record** — automatically enters practice mode and resumes gameplay.
+  Every button press/release is captured against the exact physics step
+  it happened on (not wall-clock time), so playback is frame-perfect
+  regardless of the device's framerate. The moment that attempt ends
+  (the level resets), capturing stops — further attempts are **not**
+  recorded until you act.
+- **Save** — only enabled once an attempt has been captured and finished.
+  Writes it to disk under the level's name and arms it for Play. Tapping
+  Record again instead discards the pending capture and starts fresh.
+- **Play** — replays the currently loaded/saved macro from the start of
+  the attempt.
 - **Load** — opens a picker listing every saved macro. Choosing one
   loads it and immediately starts playing it (auto-clicks Play for you).
 
@@ -68,6 +74,29 @@ a signature mismatch for 2.2081, open the generated bindings for
 `PlayLayer` / `GJBaseGameLayer` in your local Geode SDK checkout and
 adjust the hook signatures in `main.cpp` to match exactly — none of the
 recording/playback logic in `MacroManager` needs to change.
+
+`src/BotMenu.cpp`'s Record button also calls `PlayLayer::m_isPracticeMode`
+and `PauseLayer::onPracticeMode(CCObject*)` to auto-enter practice mode
+(the same function GD's own practice-mode pause button calls). If those
+names don't match your bindings exactly, check the generated `PlayLayer`
+member list for the practice-mode flag and the generated `PauseLayer`
+member list for its practice-mode button callback, and update
+`enterPracticeAndResume()` in `BotMenu.cpp` accordingly.
+
+## Recording model
+
+- **Record** discards anything previously captured/pending and starts a
+  fresh capture, auto-entering practice mode.
+- The session is considered "finished" the moment the level resets
+  (`PlayLayer::resetLevel`) — practically, whenever the attempt restarts.
+  At that point the mod stops capturing further input (moves to
+  **Standby**) but keeps what was captured; nothing further is recorded
+  until you act.
+- **Save** (only enabled on Standby) writes the captured attempt to disk
+  and arms it for Play. Tapping **Record** again instead of Save discards
+  the standby buffer and starts over.
+- Leaving the level without saving (Standby or still Recording) discards
+  the buffer — there is no auto-save.
 
 ## Versioning
 

@@ -1,5 +1,29 @@
 # Changelog
 
+## v1.1.0-beta.1 (major update)
+- **Recording flow reworked**, replacing auto-save:
+  - Record now auto-enters practice mode and resumes gameplay.
+  - When the attempt/session ends (level reset), capturing stops and the
+    buffer moves to a new **Standby** state — further attempts are not
+    recorded.
+  - Added a **Save** button (enabled only on Standby) that writes the
+    captured attempt to disk and arms it for Play. Nothing is saved
+    automatically anymore.
+  - Tapping Record again while Recording or on Standby discards whatever
+    was pending and starts a fresh capture.
+  - Leaving the level (onQuit) while Recording or on Standby now discards
+    the buffer instead of auto-saving it.
+- **Pause-menu button placement fixed**: the bot button is now added
+  directly into `PauseLayer::m_buttonMenu` and the menu's `updateLayout()`
+  is called afterward, so it takes the next open slot in GD's own button
+  row/grid instead of sitting at a fixed corner that could overlap an
+  existing button.
+- `MacroManager` gained a `Mode::Standby` state; `finishRecordingAndSave()`
+  was replaced by `saveStandbyMacro()`.
+- README updated to describe the new Record → (attempt ends) → Save flow,
+  and to flag the two added binding assumptions
+  (`PlayLayer::m_isPracticeMode`, `PauseLayer::onPracticeMode`).
+
 ## v1.0.0-beta.4
 - Fixed the real remaining build error: `Popup`'s `onClose()` is virtual
   with a `CCObject*` parameter (inherited from `FLAlertLayer`), not the
