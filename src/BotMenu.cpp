@@ -36,9 +36,11 @@ void beginPlayback() {
     resumeIfPaused();
 }
 
+BotMenuPopup* BotMenuPopup::s_current = nullptr;
+
 BotMenuPopup* BotMenuPopup::create() {
     auto ret = new BotMenuPopup();
-    if (ret->initAnchored(240.f, 190.f)) {
+    if (ret->init()) {
         ret->autorelease();
         return ret;
     }
@@ -46,14 +48,30 @@ BotMenuPopup* BotMenuPopup::create() {
     return nullptr;
 }
 
-bool BotMenuPopup::setup() {
+void BotMenuPopup::closeIfOpen() {
+    if (s_current) {
+        s_current->keyBackClicked();
+    }
+}
+
+void BotMenuPopup::onClose() {
+    if (s_current == this) {
+        s_current = nullptr;
+    }
+    Popup::onClose();
+}
+
+bool BotMenuPopup::init() {
+    if (!Popup::init(240.f, 190.f)) return false;
+
+    s_current = this;
     this->setTitle("MacroBot");
 
     auto winSize = m_mainLayer->getContentSize();
     auto& mgr = MacroManager::get();
 
     auto menu = CCMenu::create();
-    menu->setPosition({0, 0});
+    menu->setPosition({0.f, 0.f});
     m_mainLayer->addChild(menu);
 
     // --- Record button ---------------------------------------------------
@@ -110,7 +128,7 @@ void BotMenuPopup::refreshButtonStates() {
     }
 }
 
-void BotMenuPopup::onRecord(cocos2d::CCObject*) {
+void BotMenuPopup::onRecord(CCObject*) {
     auto& mgr = MacroManager::get();
     if (mgr.mode() == Mode::Recording) {
         mgr.cancelRecording();
@@ -125,12 +143,12 @@ void BotMenuPopup::onRecord(cocos2d::CCObject*) {
     refreshButtonStates();
 }
 
-void BotMenuPopup::onPlay(cocos2d::CCObject*) {
+void BotMenuPopup::onPlay(CCObject*) {
     beginPlayback();
-    this->onClose(nullptr);
+    this->keyBackClicked();
 }
 
-void BotMenuPopup::onLoad(cocos2d::CCObject*) {
+void BotMenuPopup::onLoad(CCObject*) {
     LoadPopup::create()->show();
 }
 

@@ -8,7 +8,7 @@ namespace macrobot {
 
 LoadPopup* LoadPopup::create() {
     auto ret = new LoadPopup();
-    if (ret->initAnchored(260.f, 220.f)) {
+    if (ret->init()) {
         ret->autorelease();
         return ret;
     }
@@ -16,7 +16,9 @@ LoadPopup* LoadPopup::create() {
     return nullptr;
 }
 
-bool LoadPopup::setup() {
+bool LoadPopup::init() {
+    if (!Popup::init(260.f, 220.f)) return false;
+
     this->setTitle("Load Macro");
 
     auto winSize = m_mainLayer->getContentSize();
@@ -71,7 +73,7 @@ bool LoadPopup::setup() {
     return true;
 }
 
-void LoadPopup::onPick(cocos2d::CCObject* sender) {
+void LoadPopup::onPick(CCObject* sender) {
     auto item = static_cast<CCMenuItemSpriteExtra*>(sender);
     size_t idx = static_cast<size_t>(item->getTag());
     if (idx >= m_files.size()) return;
@@ -83,10 +85,11 @@ void LoadPopup::onPick(cocos2d::CCObject* sender) {
     }
 
     // Spec: picking a macro here should get back to the bot menu and
-    // auto-click Play. We just skip straight to playback and close both
-    // popups, which is equivalent and faster for the player.
+    // auto-click Play. We skip straight to playback and close both
+    // popups, which is equivalent (and faster) for the player.
     beginPlayback();
-    this->onClose(nullptr);
+    this->keyBackClicked();
+    BotMenuPopup::closeIfOpen();
 }
 
 }
