@@ -2,6 +2,7 @@
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/PauseLayer.hpp>
 #include <Geode/binding/GJGameLevel.hpp>
+#include <vector>
 
 #include "MacroManager.hpp"
 #include "BotMenu.hpp"
@@ -83,14 +84,46 @@ class $modify(MacroBotPlayLayer, PlayLayer) {
 // -----------------------------------------------------------------------
 // PauseLayer hook: adds the circular button that opens the bot menu.
 //
-// Added directly into PauseLayer's own `m_buttonMenu` (rather than a
-// separate menu positioned at a hardcoded corner) so it takes its place
-// in the existing button row/grid instead of overlapping whatever GD
-// already put in that corner. `m_buttonMenu` has a Layout assigned
-// (Row/Grid depending on GD version) that re-flows every child's
-// position in order each time `updateLayout()` is called — so our button
-// lands in the next free slot automatically.
+// PauseLayer has no single documented "button menu" field to hook into
+// (its bindings only expose two bool fields, m_unfocused/m_tryingQuit —
+// confirmed against the generated bindings; an earlier revision of this
+// mod assumed an `m_buttonMenu` member that doesn't actually exist here).
+// So rather than guess at internal layout members/IDs again, we do real
+// collision detection: walk every existing CCMenuItem already in the
+// pause layer (recursively, since they live inside several sub-menus —
+// resume/retry/quit, practice/normal mode, replay, settings, etc.),
+// compute their on-screen rects, and place our button at the first free
+// slot going down the right edge. That's what actually fixes "button
+// lands on place 1 when a button is already there" for any GD version,
+// without depending on a specific member or node ID existing.
 // -----------------------------------------------------------------------
+
+// Returns `node`'s bounding box converted into world (screen) space, by
+// chaining convertToWorldSpace up through its parent. boundingBox() is
+// already expressed in the parent's coordinate system.
+static CCRect worldRectOf(CCNode* node) {
+    auto rect = node->boundingBox();
+    auto parent = node->getParent();
+    if (!parent) return rect;
+    auto bottomLeft = parent->convertToWorldSpace({rect.getMinX(), rect.getMinY()});
+    auto topRight = parent->convertToWorldSpace({rect.getMaxX(), rect.getMaxY()});
+    return CCRect(bottomLeft.x, bottomLeft.y, topRight.x - bottomLeft.x, topRight.y - bottomLeft.y);
+}
+
+// Recursively gathers the world-space rects of every clickable button
+// already present under `root` (pause menu buttons live in several
+// nested CCMenus, not just one).
+static void collectButtonRects(CCNode* root, std::vector<CCRect>& out) {
+    if (!root) return;
+    auto children = root->getChildren();
+    if (!children) return;
+    for (auto child : CCArrayExt<CCNode*>(children)) {
+        if (auto item = typeinfo_cast<CCMenuItem*>(child)) {
+            out.push_back(worldRectOf(item));
+        }
+        collectButtonRects(child, out);
+    }
+}
 
 class $modify(MacroBotPauseLayer, PauseLayer) {
     void customSetup() {
@@ -109,23 +142,34 @@ class $modify(MacroBotPauseLayer, PauseLayer) {
         );
         btn->setID("macrobot-open-btn"_spr);
 
-        if (m_buttonMenu) {
-            m_buttonMenu->addChild(btn);
-            // Re-flows every button in m_buttonMenu (existing ones plus
-            // ours) according to its Layout, so ours takes the next open
-            // slot instead of sitting wherever a fixed position would
-            // have placed it.
-            m_buttonMenu->updateLayout();
-        } else {
-            // Extremely unlikely fallback: no button menu found at all.
-            // Place independently so the mod still works.
-            auto winSize = CCDirector::sharedDirector()->getWinSize();
-            auto menu = CCMenu::create();
-            menu->setID("macrobot-menu"_spr);
-            menu->addChild(btn);
-            menu->setPosition({winSize.width - 35.f, winSize.height - 35.f});
-            this->addChild(menu);
+        std::vector<CCRect> existingButtons;
+        collectButtonRects(this, existingButtons);
+
+        auto winSize = CCDirector::sharedDirector()->getWinSize();
+        const float halfSize = 26.f;   // ~ our button's half-width after scale
+        const float stepDown = 48.f;   // vertical gap between candidate slots
+        CCPoint pos = {winSize.width - 35.f, winSize.height - 35.f};
+
+        auto overlapsExisting = [&](const CCPoint& p) {
+            CCRect probe(p.x - halfSize, p.y - halfSize, halfSize * 2.f, halfSize * 2.f);
+            for (auto& r : existingButtons) {
+                if (r.intersectsRect(probe)) return true;
+            }
+            return false;
+        };
+
+        // Walk down the right edge until we land on an unoccupied slot —
+        // "place 2" instead of overlapping whatever's at "place 1".
+        for (int i = 0; i < 12 && overlapsExisting(pos); i++) {
+            pos.y -= stepDown;
         }
+
+        auto menu = CCMenu::create();
+        menu->setID("macrobot-menu"_spr);
+        menu->addChild(btn);
+        menu->setPosition(pos);
+        menu->setZOrder(100);
+        this->addChild(menu);
     }
 
     void onOpenBotMenu(CCObject*) {
