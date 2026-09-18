@@ -59,10 +59,9 @@ MacroBot/
    ```
    geode build
    ```
-   or build cross-platform releases automatically via the included
-   GitHub Actions workflow (`.github/workflows/build.yml`) — every push
-   builds Android64/Windows/macOS and combines them into one `.geode`
-   file as a workflow artifact.
+   or build via the included GitHub Actions workflow
+   (`.github/workflows/build.yml`) — every push builds Android64 and
+   uploads the `.geode` package as a workflow artifact.
 
 ## A note on bindings
 
@@ -75,13 +74,24 @@ a signature mismatch for 2.2081, open the generated bindings for
 adjust the hook signatures in `main.cpp` to match exactly — none of the
 recording/playback logic in `MacroManager` needs to change.
 
+The pause-menu button placement does **not** rely on any specific
+`PauseLayer` member or node ID (an earlier revision assumed an
+`m_buttonMenu` field that doesn't actually exist in the generated
+bindings — confirmed against the docs, `PauseLayer` only exposes
+`m_unfocused`/`m_tryingQuit` as fields). Instead, `customSetup()`
+recursively walks every `CCMenuItem` already in the pause layer, computes
+their on-screen rects, and places our button at the first free slot going
+down the right edge — genuine collision detection rather than a hardcoded
+or guessed position, which is what actually avoids it landing on top of
+an existing button.
+
 `src/BotMenu.cpp`'s Record button also calls `PlayLayer::m_isPracticeMode`
 and `PauseLayer::onPracticeMode(CCObject*)` to auto-enter practice mode
-(the same function GD's own practice-mode pause button calls). If those
-names don't match your bindings exactly, check the generated `PlayLayer`
-member list for the practice-mode flag and the generated `PauseLayer`
-member list for its practice-mode button callback, and update
-`enterPracticeAndResume()` in `BotMenu.cpp` accordingly.
+(the same function GD's own practice-mode pause button calls — confirmed
+against the generated bindings). If `m_isPracticeMode` doesn't match your
+bindings exactly, check the generated `PlayLayer` member list for the
+practice-mode flag and update `enterPracticeAndResume()` in
+`BotMenu.cpp` accordingly.
 
 ## Recording model
 

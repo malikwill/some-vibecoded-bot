@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.1.0-beta.2
+- Fixed the build error: `PauseLayer` has no `m_buttonMenu` field —
+  confirmed against the generated bindings, it only exposes
+  `m_unfocused`/`m_tryingQuit`. That assumption from beta.1 is gone.
+- Replaced it with a placement approach that needs no guessed member or
+  node ID at all: `customSetup()` now recursively collects the on-screen
+  rects of every existing `CCMenuItem` in the pause layer and places our
+  button at the first free slot walking down the right edge — real
+  collision detection, which is what actually fixes "lands on place 1
+  when something's already there."
+- README's bindings note updated accordingly, and corrected a stale line
+  still describing the old Android64/Windows/macOS multi-platform build
+  (this mod has been Android64-only since beta.2 of the 1.0.0 line).
+
 ## v1.1.0-beta.1 (major update)
 - **Recording flow reworked**, replacing auto-save:
   - Record now auto-enters practice mode and resumes gameplay.
