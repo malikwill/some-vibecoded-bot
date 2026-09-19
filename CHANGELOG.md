@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.1.0-beta.7
+- Fixed the build error from last time: `pl->updateDebugHud()` doesn't
+  compile because a method added inside a `$modify(PlayLayer)` class
+  isn't actually part of `PlayLayer`'s real interface as seen from a
+  *different* `$modify` class (`PlayerObject`'s) — `PlayLayer` genuinely
+  has no member by that name from the compiler's point of view. Moved
+  the HUD refresh logic into `MacroManager` itself (`setHudLabels()` /
+  `updateHud()`), which is a plain singleton reachable from anywhere, and
+  have `PlayLayer::init()` hand it the two label pointers instead of
+  keeping them local to that class. `PlayerObject::update` now calls
+  `MacroManager::get().updateHud()` directly.
+- Pause-menu bot button made **40% bigger** (scale `0.9` → `1.26`); the
+  placement collision-avoidance radius was scaled up to match so it still
+  keeps a sensible gap from neighboring buttons.
+
 ## v1.1.0-beta.6
 - **Bot menu now opens fixed at the bottom-left** of the screen instead
   of the default centered popup position. Reasserted in `onEnter()`
