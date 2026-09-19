@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.1.0-beta.5
+- Fixed a compile error in `placeBotButton()`: `pos = {corner.x, ...};`
+  (reassigning an already-declared `CCPoint` from a braced-init-list) hit
+  an ambiguous `operator=` overload resolution on this toolchain. Replaced
+  with an explicit `CCPoint(...)` constructor call, which sidesteps it.
+  This is a different code path from the `setPosition({...})` calls
+  elsewhere (those pass a braced list as a function argument, resolved
+  directly against the parameter type, not through `operator=`) and from
+  brace-init at declaration (uses the constructor, not assignment) — both
+  of those remain fine as written.
+
 ## v1.1.0-beta.4 (major update — playback fix, take 2)
 Reworked using a real, working reference implementation (a friend's
 backend macro bot) as a guide — found two concrete, verified bugs that
