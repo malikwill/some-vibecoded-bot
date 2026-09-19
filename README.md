@@ -80,6 +80,17 @@ MacroBot/
 
 ## A note on bindings
 
+`BotMenuPopup` (`src/BotMenu.hpp/.cpp`) is a plain `CCLayer`, not
+`geode::Popup`/`FLAlertLayer`. An earlier revision tried to reposition a
+`Popup` to a fixed bottom-left spot by moving the whole node in
+`onEnter()`; `Popup` is internally a full-screen overlay whose card
+elements are positioned at window-center by code outside our control, so
+that broke badly (split background/content, unclosable, rendered
+off-screen). Building the panel ourselves — its own background, title,
+close button, and `keyBackClicked()` override — means position and
+closing are things we directly own. `LoadPopup` is unaffected and still
+uses `geode::Popup` normally (centered, no custom positioning needed).
+
 Input capture/injection is hooked on **`GJBaseGameLayer::handleButton`**,
 not `PlayLayer::handleButton` — verified against a known-working
 reference macro bot. GD's real `handleButton` virtual lives on

@@ -1,5 +1,27 @@
 # Changelog
 
+## v1.1.0-beta.8 (major update — bot menu rebuilt)
+- **Rebuilt the bot menu panel from scratch, no longer based on
+  `geode::Popup`/`FLAlertLayer`.** The last attempt to fix its position
+  (moving the whole `Popup` node to bottom-left) broke it badly: split
+  card/content, unclosable, rendered off-screen. Root cause: `Popup` is
+  internally a full-screen overlay, and its card elements
+  (`m_bgSprite`/`m_mainLayer`/etc.) are positioned at window-center by
+  code we don't control — moving the outer node doesn't move everything
+  as one clean unit, and can desync its own touch/hit-testing.
+- The panel is now a plain, self-contained `CCLayer` we build and
+  position entirely ourselves: its own background (`CCScale9Sprite`),
+  its own title, its own close button (top-right X), and its own
+  `keyBackClicked()` override so the hardware/Android back button closes
+  it too. Since it's one single node hierarchy, the background and the
+  buttons can never end up in different places from each other again.
+- Fixed at the **bottom-left** of the screen (10px margin) via a direct
+  `setPosition()` on our own layer — no more fighting an inherited
+  class's internal centering logic.
+- `BotMenuPopup::create()->show()` still works the same from the pause
+  button's callback; `closeIfOpen()` (used by `LoadPopup`) now closes via
+  the same self-contained removal logic.
+
 ## v1.1.0-beta.7
 - Fixed the build error from last time: `pl->updateDebugHud()` doesn't
   compile because a method added inside a `$modify(PlayLayer)` class
