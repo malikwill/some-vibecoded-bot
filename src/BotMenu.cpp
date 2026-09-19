@@ -84,6 +84,17 @@ void BotMenuPopup::onClose(CCObject* pSender) {
     Popup::onClose(pSender);
 }
 
+void BotMenuPopup::onEnter() {
+    Popup::onEnter();
+    // Fixed bottom-left position rather than the default centered popup
+    // placement — reasserted every time this node enters the scene (not
+    // just once in init()), since Popup's own show()/appear logic may
+    // otherwise recenter it after this runs.
+    auto size = this->getContentSize();
+    float margin = 10.f;
+    this->setPosition({size.width * 0.5f + margin, size.height * 0.5f + margin});
+}
+
 bool BotMenuPopup::init() {
     if (!Popup::init(260.f, 240.f)) return false;
 

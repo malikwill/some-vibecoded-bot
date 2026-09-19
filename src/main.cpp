@@ -4,7 +4,6 @@
 #include <Geode/modify/PlayerObject.hpp>
 #include <Geode/modify/PauseLayer.hpp>
 #include <Geode/binding/GJGameLevel.hpp>
-#include <Geode/binding/UILayer.hpp>
 #include <vector>
 
 #include "MacroManager.hpp"
@@ -73,6 +72,16 @@ class $modify(MacroBotPlayerObject, PlayerObject) {
             MacroManager::get().onPhysicsStep([pl](uint8_t button, bool isPlayer1, bool down) {
                 pl->handleButton(down, button, /*player2=*/!isPlayer1);
             });
+
+            // Piggyback the debug HUD's refresh on this same hook rather
+            // than a separate PlayLayer::update(dt) hook: PlayLayer does
+            // NOT itself declare update(dt) (confirmed against the full
+            // generated member list — it's only inherited), which is the
+            // same "declared on an ancestor, so a $modify(PlayLayer) hook
+            // silently never fires" issue that handleButton had. This
+            // hook is already proven working (it's what makes playback
+            // work at all), so it's the safe place to drive the HUD too.
+            pl->updateDebugHud();
         }
         PlayerObject::update(stepDelta);
     }
@@ -95,27 +104,27 @@ class $modify(MacroBotPlayLayer, PlayLayer) {
             MacroManager::get().setLevelName(level->m_levelName);
         }
 
-        // Debug HUD labels go on UILayer, not directly on PlayLayer.
-        // PlayLayer's own coordinate space scrolls/scales with the level
-        // camera, so a child added straight to `this` drifts off-screen
-        // almost immediately — that's why the HUD wasn't showing anything
-        // at all. UILayer is GD's own fixed, non-scrolling overlay (it's
-        // what the percentage/attempt labels live on), so it's the
-        // correct parent for a screen-pinned overlay.
-        CCNode* hudParent = UILayer::get();
-        if (!hudParent) hudParent = this;
-
+        // Debug HUD labels are plain children of PlayLayer itself — same
+        // as GD's own m_percentageLabel/m_attemptLabel, which are also
+        // direct PlayLayer children and stay fixed on screen throughout
+        // gameplay (confirmed against the generated bindings' field
+        // list), so PlayLayer's own coordinate space does NOT scroll/
+        // scale with the level camera the way an earlier revision of
+        // this mod assumed. That assumption is what sent the labels to
+        // an unrelated (and likely null, outside the editor) UILayer
+        // instead — reverted back to `this`, which is the same parent
+        // GD's own fixed UI elements use.
         m_fields->frameLabel = CCLabelBMFont::create("Frame: 0", "chatFont.fnt");
         m_fields->frameLabel->setAnchorPoint({0.f, 1.f});
         m_fields->frameLabel->setScale(0.45f);
         m_fields->frameLabel->setID("macrobot-frame-label"_spr);
-        hudParent->addChild(m_fields->frameLabel, 1000);
+        this->addChild(m_fields->frameLabel, 1000);
 
         m_fields->eventsLabel = CCLabelBMFont::create("Events: 0", "chatFont.fnt");
         m_fields->eventsLabel->setAnchorPoint({0.f, 1.f});
         m_fields->eventsLabel->setScale(0.45f);
         m_fields->eventsLabel->setID("macrobot-events-label"_spr);
-        hudParent->addChild(m_fields->eventsLabel, 1000);
+        this->addChild(m_fields->eventsLabel, 1000);
 
         auto winSize = CCDirector::sharedDirector()->getWinSize();
         m_fields->frameLabel->setPosition({6.f, winSize.height - 6.f});
@@ -125,14 +134,19 @@ class $modify(MacroBotPlayLayer, PlayLayer) {
         return true;
     }
 
-    // Only used to refresh the HUD's text once per rendered frame now —
-    // the actual playback/recording timing lives in PlayerObject::update
-    // above.
-    void update(float dt) {
-        PlayLayer::update(dt);
-        updateDebugHud();
-    }
-
+public:
+    // Called externally from PlayerObject::update below (a different
+    // $modify class), piggybacking on that already-proven-working hook
+    // rather than a separate PlayLayer::update(dt) hook — PlayLayer does
+    // NOT itself declare update(dt) (confirmed against the full
+    // generated member list; it's only inherited), the same "declared on
+    // an ancestor, so a $modify(PlayLayer) hook silently never fires"
+    // issue handleButton had. Needs to be public: it's a brand-new method
+    // (not overriding a real GD one), so unlike resetLevel/onQuit/init —
+    // which stay callable externally via PlayLayer's own original public
+    // declarations regardless of this class's access specifiers — this
+    // one only exists because we added it, and defaults to private
+    // otherwise.
     void updateDebugHud() {
         auto& mgr = MacroManager::get();
         bool show = mgr.isDebugHudEnabled();

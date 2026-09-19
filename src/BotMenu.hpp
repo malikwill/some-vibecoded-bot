@@ -23,6 +23,7 @@ class BotMenuPopup : public geode::Popup {
 protected:
     bool init() override;
     void onClose(CCObject* pSender) override;
+    void onEnter() override;
     void refreshButtonStates();
 
     void onRecord(CCObject*);

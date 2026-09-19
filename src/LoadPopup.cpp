@@ -46,8 +46,10 @@ bool LoadPopup::init() {
     scroll->setPosition({(winSize.width - listSize.width) / 2.f, 30.f});
     m_mainLayer->addChild(scroll);
 
-    float rowHeight = 34.f;
-    float y = static_cast<float>(m_files.size()) * rowHeight;
+    float rowHeight = 30.f;
+    float rowGap = 10.f;
+    float rowStep = rowHeight + rowGap; // gap so entries aren't stuck together
+    float y = static_cast<float>(m_files.size()) * rowStep;
 
     for (size_t i = 0; i < m_files.size(); i++) {
         auto name = m_files[i].stem().string();
@@ -61,13 +63,13 @@ bool LoadPopup::init() {
         rowMenu->setContentSize({listSize.width, rowHeight});
         rowMenu->addChild(btn);
         btn->setPosition({listSize.width * 0.5f, rowHeight * 0.5f});
-        rowMenu->setPosition({0.f, y - rowHeight});
+        rowMenu->setPosition({0.f, y - rowStep});
         scroll->m_contentLayer->addChild(rowMenu);
 
-        y -= rowHeight;
+        y -= rowStep;
     }
 
-    scroll->m_contentLayer->setContentSize({listSize.width, static_cast<float>(m_files.size()) * rowHeight});
+    scroll->m_contentLayer->setContentSize({listSize.width, static_cast<float>(m_files.size()) * rowStep});
     scroll->moveToTop();
 
     return true;
