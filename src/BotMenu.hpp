@@ -1,6 +1,5 @@
 #pragma once
 #include <Geode/Geode.hpp>
-#include <Geode/ui/Popup.hpp>
 
 using namespace geode::prelude;
 
@@ -11,19 +10,23 @@ namespace macrobot {
 // macro is currently loaded/armed.
 void beginPlayback();
 
-// The popup that opens when the circular button in the pause menu is
-// pressed. Four buttons (Record, Save, Play, Load) plus a Debug HUD
-// toggle that shows/hides the in-level frame + event counters.
+// The bot menu panel that opens when the circular button in the pause
+// menu is pressed. Four buttons (Record, Save, Play, Load) plus a Debug
+// HUD toggle that shows/hides the in-level frame + event counters.
 //
-// NOTE: current Geode (5.x) ui/Popup.hpp exposes a plain, non-template
-// `geode::Popup` (subclass of FLAlertLayer) — not the older `Popup<Args...>`
-// template. You override `init()` yourself (calling `Popup::init(w, h)`
-// first) rather than a `setup()` virtual. See docs.geode-sdk.org/tutorials/popup.
-class BotMenuPopup : public geode::Popup {
+// NOTE: this is a plain, self-contained CCLayer — NOT geode::Popup /
+// FLAlertLayer. An earlier revision tried to reposition a Popup to a
+// fixed bottom-left spot, which broke badly (split card/content,
+// unclosable): Popup is internally a full-screen overlay whose card
+// elements are positioned at window-center by code we don't control, so
+// moving the outer node doesn't move everything cleanly and can desync
+// its own hit-testing. Building this panel ourselves means the position,
+// background, and close behavior are all things we directly control —
+// no inherited surprises.
+class BotMenuPopup : public CCLayer {
 protected:
-    bool init() override;
-    void onClose(CCObject* pSender) override;
-    void onEnter() override;
+    bool init();
+    void keyBackClicked() override;
     void refreshButtonStates();
 
     void onRecord(CCObject*);
@@ -31,6 +34,9 @@ protected:
     void onPlay(CCObject*);
     void onLoad(CCObject*);
     void onToggleHud(CCObject*);
+    void onCloseClicked(CCObject*);
+
+    void closeSelf();
 
     CCMenuItemSpriteExtra* m_recordBtn = nullptr;
     CCMenuItemSpriteExtra* m_saveBtn = nullptr;
@@ -42,6 +48,8 @@ protected:
 
 public:
     static BotMenuPopup* create();
+    // Adds this panel to the current scene, fixed at the bottom-left.
+    void show();
     // Closes the currently-open bot menu, if any. Used by LoadPopup so
     // picking a macro visibly returns to the bot menu before it auto-
     // closes via Play (matches the spec: load -> back to bot menu ->

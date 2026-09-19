@@ -73,46 +73,66 @@ BotMenuPopup* BotMenuPopup::create() {
 
 void BotMenuPopup::closeIfOpen() {
     if (s_current) {
-        s_current->keyBackClicked();
+        s_current->closeSelf();
     }
 }
 
-void BotMenuPopup::onClose(CCObject* pSender) {
+void BotMenuPopup::closeSelf() {
     if (s_current == this) {
         s_current = nullptr;
     }
-    Popup::onClose(pSender);
+    this->setKeypadEnabled(false);
+    this->removeFromParentAndCleanup(true);
 }
 
-void BotMenuPopup::onEnter() {
-    Popup::onEnter();
-    // Fixed bottom-left position rather than the default centered popup
-    // placement — reasserted every time this node enters the scene (not
-    // just once in init()), since Popup's own show()/appear logic may
-    // otherwise recenter it after this runs.
-    auto size = this->getContentSize();
-    float margin = 10.f;
-    this->setPosition({size.width * 0.5f + margin, size.height * 0.5f + margin});
+void BotMenuPopup::keyBackClicked() {
+    closeSelf();
 }
+
+void BotMenuPopup::onCloseClicked(CCObject*) {
+    closeSelf();
+}
+
+static constexpr float kPanelWidth = 260.f;
+static constexpr float kPanelHeight = 240.f;
 
 bool BotMenuPopup::init() {
-    if (!Popup::init(260.f, 240.f)) return false;
+    if (!CCLayer::init()) return false;
 
-    s_current = this;
-    this->setTitle("MacroBot");
+    this->setContentSize({kPanelWidth, kPanelHeight});
 
-    auto winSize = m_mainLayer->getContentSize();
+    // Background "card" — a plain, self-drawn panel rather than
+    // anything borrowed from Popup/FLAlertLayer, so its position always
+    // matches this layer's own position exactly.
+    auto bg = CCScale9Sprite::create("GJ_square01.png");
+    bg->setContentSize({kPanelWidth, kPanelHeight});
+    bg->setAnchorPoint({0.f, 0.f});
+    bg->setPosition({0.f, 0.f});
+    this->addChild(bg);
+
+    auto title = CCLabelBMFont::create("MacroBot", "goldFont.fnt");
+    title->setScale(0.9f);
+    title->setPosition({kPanelWidth * 0.5f, kPanelHeight - 22.f});
+    this->addChild(title);
 
     auto menu = CCMenu::create();
     menu->setPosition({0.f, 0.f});
-    m_mainLayer->addChild(menu);
+    this->addChild(menu);
+
+    // --- Close button (top-right corner) --------------------------------
+    auto closeSprite = CCSprite::createWithSpriteFrameName("GJ_closeBtn_001.png");
+    auto closeBtn = CCMenuItemSpriteExtra::create(
+        closeSprite, this, menu_selector(BotMenuPopup::onCloseClicked)
+    );
+    closeBtn->setPosition({kPanelWidth - 16.f, kPanelHeight - 16.f});
+    menu->addChild(closeBtn);
 
     // --- Record button (top-left) ------------------------------------
     auto recordLabel = ButtonSprite::create("Record", "bigFont.fnt", "GJ_button_01.png", 0.75f);
     m_recordBtn = CCMenuItemSpriteExtra::create(
         recordLabel, this, menu_selector(BotMenuPopup::onRecord)
     );
-    m_recordBtn->setPosition({winSize.width * 0.5f - 60.f, winSize.height * 0.68f});
+    m_recordBtn->setPosition({kPanelWidth * 0.5f - 60.f, kPanelHeight * 0.68f});
     menu->addChild(m_recordBtn);
 
     // --- Save button (top-right) --------------------------------------
@@ -120,7 +140,7 @@ bool BotMenuPopup::init() {
     m_saveBtn = CCMenuItemSpriteExtra::create(
         saveLabel, this, menu_selector(BotMenuPopup::onSave)
     );
-    m_saveBtn->setPosition({winSize.width * 0.5f + 60.f, winSize.height * 0.68f});
+    m_saveBtn->setPosition({kPanelWidth * 0.5f + 60.f, kPanelHeight * 0.68f});
     menu->addChild(m_saveBtn);
 
     // --- Play button (mid-left) ------------------------------------
@@ -128,7 +148,7 @@ bool BotMenuPopup::init() {
     m_playBtn = CCMenuItemSpriteExtra::create(
         playLabel, this, menu_selector(BotMenuPopup::onPlay)
     );
-    m_playBtn->setPosition({winSize.width * 0.5f - 60.f, winSize.height * 0.46f});
+    m_playBtn->setPosition({kPanelWidth * 0.5f - 60.f, kPanelHeight * 0.46f});
     menu->addChild(m_playBtn);
 
     // --- Load button (mid-right) -----------------------------------
@@ -136,7 +156,7 @@ bool BotMenuPopup::init() {
     auto loadBtn = CCMenuItemSpriteExtra::create(
         loadLabel, this, menu_selector(BotMenuPopup::onLoad)
     );
-    loadBtn->setPosition({winSize.width * 0.5f + 60.f, winSize.height * 0.46f});
+    loadBtn->setPosition({kPanelWidth * 0.5f + 60.f, kPanelHeight * 0.46f});
     menu->addChild(loadBtn);
 
     // --- Debug HUD toggle (shows in-level frame/event counters) --------
@@ -146,24 +166,39 @@ bool BotMenuPopup::init() {
         offSpr, onSpr, this, menu_selector(BotMenuPopup::onToggleHud)
     );
     m_hudToggle->setScale(0.7f);
-    m_hudToggle->setPosition({winSize.width * 0.5f - 60.f, winSize.height * 0.27f});
+    m_hudToggle->setPosition({kPanelWidth * 0.5f - 60.f, kPanelHeight * 0.27f});
     menu->addChild(m_hudToggle);
 
     auto hudLabel = CCLabelBMFont::create("Debug HUD", "chatFont.fnt");
     hudLabel->setScale(0.5f);
     hudLabel->setAnchorPoint({0.f, 0.5f});
-    hudLabel->setPosition({winSize.width * 0.5f - 45.f, winSize.height * 0.27f});
-    m_mainLayer->addChild(hudLabel);
+    hudLabel->setPosition({kPanelWidth * 0.5f - 45.f, kPanelHeight * 0.27f});
+    this->addChild(hudLabel);
 
     // --- Status label ----------------------------------------------
     m_statusLabel = CCLabelBMFont::create("", "chatFont.fnt");
     m_statusLabel->setScale(0.5f);
-    m_statusLabel->setPosition({winSize.width * 0.5f, winSize.height * 0.12f});
+    m_statusLabel->setPosition({kPanelWidth * 0.5f, kPanelHeight * 0.12f});
     m_statusLabel->setID("macrobot-status-label");
-    m_mainLayer->addChild(m_statusLabel);
+    this->addChild(m_statusLabel);
 
     refreshButtonStates();
     return true;
+}
+
+void BotMenuPopup::show() {
+    s_current = this;
+
+    auto scene = CCDirector::sharedDirector()->getRunningScene();
+    if (!scene) return;
+
+    float margin = 10.f;
+    this->setPosition({margin, margin});
+    this->setZOrder(10000);
+    scene->addChild(this, 10000);
+
+    this->setKeypadEnabled(true);
+    refreshButtonStates();
 }
 
 void BotMenuPopup::refreshButtonStates() {
@@ -226,7 +261,7 @@ void BotMenuPopup::onRecord(CCObject*) {
     mgr.startRecording();
 
     enterPracticeAndResume();
-    this->keyBackClicked();
+    closeSelf();
 }
 
 void BotMenuPopup::onSave(CCObject*) {
@@ -236,7 +271,7 @@ void BotMenuPopup::onSave(CCObject*) {
 
 void BotMenuPopup::onPlay(CCObject*) {
     beginPlayback();
-    this->keyBackClicked();
+    closeSelf();
 }
 
 void BotMenuPopup::onLoad(CCObject*) {
