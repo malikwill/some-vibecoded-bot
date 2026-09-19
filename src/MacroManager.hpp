@@ -59,6 +59,17 @@ public:
     size_t playedEventCount() const { return m_playCursor; }
     size_t totalArmedEventCount() const { return m_armed ? m_armed->events.size() : 0; }
 
+    // Hands the manager the current level's two HUD labels (created in
+    // PlayLayer::init, see main.cpp) so updateHud() can drive them. A
+    // method added to a $modify(PlayLayer) class isn't actually part of
+    // PlayLayer's real interface as seen from other classes/files — that
+    // was the "no member named updateHud in PlayLayer" build error — so
+    // the labels are routed through this always-accessible singleton
+    // instead, and updateHud() (called from the PlayerObject::update
+    // hook, which is proven to actually fire) does the refreshing here.
+    void setHudLabels(cocos2d::CCLabelBMFont* frameLabel, cocos2d::CCLabelBMFont* eventsLabel);
+    void updateHud();
+
     // --- Hooks into these from PlayerObject::update, see main.cpp -------
     // Called once per actual physics substep (PlayerObject::update fires
     // once per real GD physics tick, not once per rendered frame the way
@@ -98,6 +109,9 @@ private:
     MacroData m_buffer;                    // recording / standby buffer
     std::optional<MacroData> m_armed;      // loaded / just-saved, ready to play
     std::optional<std::string> m_armedDisplayName;
+
+    cocos2d::CCLabelBMFont* m_hudFrameLabel = nullptr;
+    cocos2d::CCLabelBMFont* m_hudEventsLabel = nullptr;
 };
 
 }

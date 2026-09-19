@@ -165,4 +165,41 @@ void MacroManager::recordInput(int button, bool player1, bool down) {
     m_buffer.events.push_back(ev);
 }
 
+void MacroManager::setHudLabels(cocos2d::CCLabelBMFont* frameLabel, cocos2d::CCLabelBMFont* eventsLabel) {
+    m_hudFrameLabel = frameLabel;
+    m_hudEventsLabel = eventsLabel;
+}
+
+void MacroManager::updateHud() {
+    bool show = m_debugHudEnabled;
+
+    if (m_hudFrameLabel) m_hudFrameLabel->setVisible(show);
+    if (m_hudEventsLabel) m_hudEventsLabel->setVisible(show);
+    if (!show) return;
+
+    if (m_hudFrameLabel) {
+        m_hudFrameLabel->setString(("Frame: " + std::to_string(m_frame)).c_str());
+    }
+
+    if (m_hudEventsLabel) {
+        std::string eventsText;
+        switch (m_mode) {
+            case Mode::Recording:
+                eventsText = "Events: " + std::to_string(recordedEventCount()) + " (recording)";
+                break;
+            case Mode::Standby:
+                eventsText = "Events: " + std::to_string(recordedEventCount()) + " (standby, unsaved)";
+                break;
+            case Mode::Playing:
+                eventsText = "Events: " + std::to_string(playedEventCount()) + "/"
+                              + std::to_string(totalArmedEventCount()) + " (playing)";
+                break;
+            default:
+                eventsText = "Events: " + std::to_string(totalArmedEventCount()) + " armed";
+                break;
+        }
+        m_hudEventsLabel->setString(eventsText.c_str());
+    }
+}
+
 }

@@ -81,7 +81,12 @@ class $modify(MacroBotPlayerObject, PlayerObject) {
             // silently never fires" issue that handleButton had. This
             // hook is already proven working (it's what makes playback
             // work at all), so it's the safe place to drive the HUD too.
-            pl->updateDebugHud();
+            // Routed through MacroManager rather than a method on the
+            // PlayLayer $modify class itself — a method added there isn't
+            // actually part of PlayLayer's real interface as seen from
+            // this (different) $modify class, which is what "no member
+            // named updateDebugHud in PlayLayer" was.
+            MacroManager::get().updateHud();
         }
         PlayerObject::update(stepDelta);
     }
@@ -92,11 +97,6 @@ class $modify(MacroBotPlayerObject, PlayerObject) {
 // -----------------------------------------------------------------------
 
 class $modify(MacroBotPlayLayer, PlayLayer) {
-    struct Fields {
-        CCLabelBMFont* frameLabel = nullptr;
-        CCLabelBMFont* eventsLabel = nullptr;
-    };
-
     bool init(GJGameLevel* level, bool useReplay, bool dontCreateObjects) {
         if (!PlayLayer::init(level, useReplay, dontCreateObjects)) return false;
 
@@ -110,70 +110,36 @@ class $modify(MacroBotPlayLayer, PlayLayer) {
         // gameplay (confirmed against the generated bindings' field
         // list), so PlayLayer's own coordinate space does NOT scroll/
         // scale with the level camera the way an earlier revision of
-        // this mod assumed. That assumption is what sent the labels to
-        // an unrelated (and likely null, outside the editor) UILayer
-        // instead — reverted back to `this`, which is the same parent
-        // GD's own fixed UI elements use.
-        m_fields->frameLabel = CCLabelBMFont::create("Frame: 0", "chatFont.fnt");
-        m_fields->frameLabel->setAnchorPoint({0.f, 1.f});
-        m_fields->frameLabel->setScale(0.45f);
-        m_fields->frameLabel->setID("macrobot-frame-label"_spr);
-        this->addChild(m_fields->frameLabel, 1000);
+        // this mod assumed.
+        //
+        // The pointers are handed to MacroManager (setHudLabels) rather
+        // than kept in this class's own Fields: refreshing them from
+        // PlayerObject::update — a DIFFERENT $modify class, and the only
+        // hook confirmed to actually fire — can't call a method added
+        // here (that's what "no member named updateDebugHud in
+        // PlayLayer" was: a method added inside a $modify class isn't
+        // part of the real PlayLayer interface elsewhere). Routing
+        // through the always-accessible MacroManager singleton sidesteps
+        // that entirely.
+        auto frameLabel = CCLabelBMFont::create("Frame: 0", "chatFont.fnt");
+        frameLabel->setAnchorPoint({0.f, 1.f});
+        frameLabel->setScale(0.45f);
+        frameLabel->setID("macrobot-frame-label"_spr);
+        this->addChild(frameLabel, 1000);
 
-        m_fields->eventsLabel = CCLabelBMFont::create("Events: 0", "chatFont.fnt");
-        m_fields->eventsLabel->setAnchorPoint({0.f, 1.f});
-        m_fields->eventsLabel->setScale(0.45f);
-        m_fields->eventsLabel->setID("macrobot-events-label"_spr);
-        this->addChild(m_fields->eventsLabel, 1000);
+        auto eventsLabel = CCLabelBMFont::create("Events: 0", "chatFont.fnt");
+        eventsLabel->setAnchorPoint({0.f, 1.f});
+        eventsLabel->setScale(0.45f);
+        eventsLabel->setID("macrobot-events-label"_spr);
+        this->addChild(eventsLabel, 1000);
 
         auto winSize = CCDirector::sharedDirector()->getWinSize();
-        m_fields->frameLabel->setPosition({6.f, winSize.height - 6.f});
-        m_fields->eventsLabel->setPosition({6.f, winSize.height - 20.f});
+        frameLabel->setPosition({6.f, winSize.height - 6.f});
+        eventsLabel->setPosition({6.f, winSize.height - 20.f});
 
-        updateDebugHud();
+        MacroManager::get().setHudLabels(frameLabel, eventsLabel);
+        MacroManager::get().updateHud();
         return true;
-    }
-
-public:
-    // Called externally from PlayerObject::update below (a different
-    // $modify class), piggybacking on that already-proven-working hook
-    // rather than a separate PlayLayer::update(dt) hook — PlayLayer does
-    // NOT itself declare update(dt) (confirmed against the full
-    // generated member list; it's only inherited), the same "declared on
-    // an ancestor, so a $modify(PlayLayer) hook silently never fires"
-    // issue handleButton had. Needs to be public: it's a brand-new method
-    // (not overriding a real GD one), so unlike resetLevel/onQuit/init —
-    // which stay callable externally via PlayLayer's own original public
-    // declarations regardless of this class's access specifiers — this
-    // one only exists because we added it, and defaults to private
-    // otherwise.
-    void updateDebugHud() {
-        auto& mgr = MacroManager::get();
-        bool show = mgr.isDebugHudEnabled();
-
-        if (m_fields->frameLabel) m_fields->frameLabel->setVisible(show);
-        if (m_fields->eventsLabel) m_fields->eventsLabel->setVisible(show);
-        if (!show) return;
-
-        m_fields->frameLabel->setString(("Frame: " + std::to_string(mgr.currentFrame())).c_str());
-
-        std::string eventsText;
-        switch (mgr.mode()) {
-            case Mode::Recording:
-                eventsText = "Events: " + std::to_string(mgr.recordedEventCount()) + " (recording)";
-                break;
-            case Mode::Standby:
-                eventsText = "Events: " + std::to_string(mgr.recordedEventCount()) + " (standby, unsaved)";
-                break;
-            case Mode::Playing:
-                eventsText = "Events: " + std::to_string(mgr.playedEventCount()) + "/"
-                              + std::to_string(mgr.totalArmedEventCount()) + " (playing)";
-                break;
-            default:
-                eventsText = "Events: " + std::to_string(mgr.totalArmedEventCount()) + " armed";
-                break;
-        }
-        m_fields->eventsLabel->setString(eventsText.c_str());
     }
 
     void resetLevel() {
@@ -195,6 +161,9 @@ public:
         if (mode == Mode::Playing) {
             MacroManager::get().stopPlaying();
         }
+        // Drop the HUD label pointers — this PlayLayer (and the labels,
+        // its children) is about to go away.
+        MacroManager::get().setHudLabels(nullptr, nullptr);
         PlayLayer::onQuit();
     }
 };
@@ -270,7 +239,7 @@ class $modify(MacroBotPauseLayer, PauseLayer) {
             // stock sprite so the mod still functions.
             sprite = CCSprite::createWithSpriteFrameName("GJ_editorBtn_001.png");
         }
-        sprite->setScale(0.9f);
+        sprite->setScale(1.26f); // 40% bigger than the original 0.9
 
         auto btn = CCMenuItemSpriteExtra::create(
             sprite, this, menu_selector(MacroBotPauseLayer::onOpenBotMenu)
@@ -283,7 +252,7 @@ class $modify(MacroBotPauseLayer, PauseLayer) {
         std::vector<CCRect> nearby;
         collectNearbyButtonRects(this, corner, 170.f, nearby);
 
-        const float halfSize = 26.f;
+        const float halfSize = 36.f; // scaled up to match the bigger button
         CCPoint pos = corner;
 
         if (!nearby.empty()) {
