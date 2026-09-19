@@ -1,5 +1,46 @@
 # Changelog
 
+## v1.1.0-beta.4 (major update — playback fix, take 2)
+Reworked using a real, working reference implementation (a friend's
+backend macro bot) as a guide — found two concrete, verified bugs that
+account for the total playback failure, not just a timing-precision
+issue:
+
+- **Root cause #1: wrong hook target for input.** GD's real
+  `handleButton` virtual lives on `GJBaseGameLayer`, not `PlayLayer` —
+  `PlayLayer` inherits it but doesn't redeclare it. Hooking it on
+  `PlayLayer` compiled without error but never actually intercepted real
+  input. Now hooked as `$modify(GJBaseGameLayer)`, matching the verified
+  reference. Also corrected the third parameter's polarity: it's
+  `player2` (true = second player), not `player1` as previously assumed
+  — harmless on a single-player level, but wrong for 2P/dual mode.
+- **Root cause #2: wrong hook target for timing.** `PlayLayer::update()`
+  fires once per *rendered frame*; GD's actual physics run several fixed
+  substeps per rendered frame, and `PlayerObject::update(stepDelta)` is
+  what fires once per real substep. Recording/playback now key off that
+  instead, giving a `frame` counter that matches real physics steps
+  instead of an approximation of them. Firing due playback input before
+  calling through to `PlayerObject::update` (rather than after) also
+  matches how a live touch lands before physics runs for that step.
+- **`.mbf` reworked to `{frame, button, state, player}`** (format v3):
+  `frame` = physical substep index (uint32), `button` = GD button id,
+  `state` = pressed/released, `player` = player1/player2. Dropped the
+  earlier tick-rate/accumulator metadata — the fixed-substep-hook
+  approach makes it unnecessary.
+- **Fixed the debug HUD showing nothing.** The labels were parented
+  directly to `PlayLayer`, whose coordinate space scrolls/scales with
+  the level camera — so they were being dragged off-screen immediately.
+  Now parented to `UILayer` (GD's own fixed, non-scrolling overlay,
+  where the percentage/attempt labels live).
+- **Button placement, second attempt.** Still no reliance on a guessed
+  `PauseLayer` member/ID. Two changes: placement is now deferred one
+  frame (`scheduleOnce`) so it runs after every other mod's
+  `customSetup()` has already added its buttons this init cycle (a
+  same-frame ordering race was likely why a button landed on top of an
+  existing one before); and instead of probing fixed candidate points,
+  it now finds the actual lowest edge of whatever's already clustered
+  near the default corner and sits directly below it.
+
 ## v1.1.0-beta.3 (major update — playback fix)
 - **Fixed macro playback not working at all.** The actual bug: `m_step`
   was incremented once per `PlayLayer::update()` call — but `update()`
