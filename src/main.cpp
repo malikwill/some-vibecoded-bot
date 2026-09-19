@@ -279,7 +279,7 @@ class $modify(MacroBotPauseLayer, PauseLayer) {
             }
             // Sit just below whatever's already stacked in this corner —
             // "next slot in the column" instead of a fixed guessed offset.
-            pos = {corner.x, lowestY - halfSize - 6.f};
+            pos = CCPoint(corner.x, lowestY - halfSize - 6.f);
         }
 
         auto menu = CCMenu::create();
