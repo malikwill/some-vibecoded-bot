@@ -7,8 +7,8 @@ macros, built for **GD 2.2081 / Geode SDK 5.10.1 / Android x64**.
 
 - A circular button is added to the **pause menu**, in its rightful spot
   in the existing button row (not overlapping whatever GD already has
-  there). Tapping it opens the bot menu: **Record**, **Save**, **Play**,
-  **Load**.
+  there). Tapping it opens the bot menu, fixed at the **bottom-left** of
+  the screen: **Record**, **Save**, **Play**, **Load**.
 - **Record** — automatically enters practice mode and resumes gameplay.
   Every button press/release is captured against the exact physics
   substep it happened on (via `PlayerObject::update`, which fires once
@@ -21,13 +21,13 @@ macros, built for **GD 2.2081 / Geode SDK 5.10.1 / Android x64**.
   Record again instead discards the pending capture and starts fresh.
 - **Play** — replays the currently loaded/saved macro from the start of
   the attempt.
-- **Load** — opens a picker listing every saved macro. Choosing one
-  loads it and immediately starts playing it (auto-clicks Play for you).
+- **Load** — opens a picker listing every saved macro (spaced out, not
+  stuck together). Choosing one loads it and immediately starts playing
+  it (auto-clicks Play for you).
 - **Debug HUD** — a checkbox in the bot menu toggles a small on-screen
-  overlay, pinned to `UILayer` (GD's fixed, non-scrolling HUD layer,
-  top-left of the level) showing the live frame counter and an event
-  counter (recorded count while Recording, played/total while Playing,
-  armed count otherwise), so what recording/playback is doing is
+  overlay, top-left of the level, showing the live frame counter and an
+  event counter (recorded count while Recording, played/total while
+  Playing, armed count otherwise), so what recording/playback is doing is
   actually visible instead of a black box.
 
 ## Macro format
@@ -88,19 +88,41 @@ hook placed on `PlayLayer` compiles fine but never actually intercepts
 real input. That silent mismatch was the main reason nothing worked.
 
 Frame-accurate timing is hooked on **`PlayerObject::update(float
-stepDelta)`**, not `PlayLayer::update`. `PlayLayer::update()` fires once
-per rendered frame; GD runs several fixed physics substeps inside a
-single rendered frame, and `PlayerObject::update` is what fires once per
-real substep (also verified against the reference bot). It's guarded to
-`this == pl->m_player1` so 2-player/dual mode doesn't double-count.
+stepDelta)`**. GD runs several fixed physics substeps inside a single
+rendered frame, and `PlayerObject::update` is what fires once per real
+substep (verified against the reference bot) — a much finer grain than
+a rendered-frame hook could give. It's guarded to `this == pl->m_player1`
+so 2-player/dual mode doesn't double-count. The debug HUD's refresh is
+also piggybacked on this same hook, rather than a separate
+`PlayLayer::update(float dt)` hook: checked against the full generated
+`PlayLayer` member list, `PlayLayer` doesn't declare `update` at all —
+only inherits it — which is the same "declared on an ancestor, so a
+`$modify(PlayLayer)` hook silently never fires" issue `handleButton` had.
+The `PlayerObject::update` hook is already proven working (it's what
+makes playback work at all), so it's the safe place to drive the HUD too,
+via a public `updateDebugHud()` method added to `PlayLayer`.
+
+The debug HUD's labels are plain children of `PlayLayer` itself. An
+earlier revision moved them to `UILayer` on the theory that `PlayLayer`'s
+coordinate space scrolls with the level camera — but `UILayer`'s own
+methods (`enableEditorMode`, `editorPlaytest`) show it's actually the
+level editor's UI layer, not the gameplay HUD, so it was most likely null
+during normal play (silently falling back to the "broken" parent anyway).
+Checking the actual generated `PlayLayer` field list instead shows
+`m_percentageLabel`/`m_attemptLabel` are plain direct children of
+`PlayLayer` that stay fixed on screen throughout gameplay — so
+`PlayLayer`'s own coordinate space was never the problem, and the labels
+are back to being direct children of it, same as GD's own HUD elements.
 
 `src/main.cpp` also still hooks `PlayLayer::resetLevel`, `PlayLayer::onQuit`,
-and `PauseLayer::customSetup`. These match the commonly-used signatures
-across recent GD versions, but Geode's generated bindings are
-version-specific — if `geode build` reports a mismatch for 2.2081, open
+and `PauseLayer::customSetup` — these ARE declared directly on their
+respective classes (confirmed against the generated bindings), so they
+don't have the same silent-hook risk as `handleButton`/`update` did. If
+`geode build` ever reports a mismatch for 2.2081 on any hook here, open
 the generated bindings for the relevant class in your local Geode SDK
-checkout and adjust the hook signature to match; none of the
-recording/playback logic in `MacroManager` needs to change.
+checkout and check both the signature AND which class actually declares
+it before adjusting; none of the recording/playback logic in
+`MacroManager` needs to change either way.
 
 The pause-menu button placement does **not** rely on any specific
 `PauseLayer` member or node ID (an earlier revision assumed an

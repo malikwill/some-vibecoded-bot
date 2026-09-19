@@ -1,5 +1,33 @@
 # Changelog
 
+## v1.1.0-beta.6
+- **Bot menu now opens fixed at the bottom-left** of the screen instead
+  of the default centered popup position. Reasserted in `onEnter()`
+  (not just once at creation) since the base `Popup` may otherwise
+  recenter it after.
+- **Fixed the debug HUD still showing nothing**, for real this time —
+  two compounding bugs:
+  - The refresh hook (`PlayLayer::update(float dt)`) turned out to have
+    the exact same silent-failure issue `handleButton` had: confirmed
+    against the full generated member list, `PlayLayer` doesn't declare
+    `update` itself at all (only inherits it), so that hook never fired.
+    Moved the HUD refresh onto `PlayerObject::update` instead — the hook
+    already proven working, since it's what makes playback work.
+  - The label parenting "fix" from last time (moving them to `UILayer`)
+    was based on a wrong guess: `UILayer`'s own methods
+    (`enableEditorMode`, `editorPlaytest`) show it's the level editor's
+    UI layer, not the gameplay HUD, so it's most likely null during
+    normal play — silently falling back to the old (allegedly broken)
+    parent. Checked the actual generated `PlayLayer` field list instead:
+    `m_percentageLabel`/`m_attemptLabel` are plain direct children of
+    `PlayLayer` and stay fixed on screen throughout gameplay, which
+    means `PlayLayer`'s coordinate space was never actually the problem.
+    Labels are back to being direct children of `PlayLayer`, matching
+    GD's own HUD elements.
+- **Added spacing between entries in the Load Macro list** — rows were
+  stacked with zero gap (each row's step exactly matched its own
+  height); added a 10px gap between rows.
+
 ## v1.1.0-beta.5
 - Fixed a compile error in `placeBotButton()`: `pos = {corner.x, ...};`
   (reassigning an already-declared `CCPoint` from a braced-init-list) hit
