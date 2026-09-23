@@ -192,8 +192,13 @@ void BotMenuPopup::show() {
     auto scene = CCDirector::sharedDirector()->getRunningScene();
     if (!scene) return;
 
-    float margin = 10.f;
-    this->setPosition({margin, margin});
+    auto winSize = CCDirector::sharedDirector()->getWinSize();
+    auto size = this->getContentSize();
+    // Centered: anchor is (0,0) (default CCLayer), so the position we
+    // set is the panel's bottom-left corner — placing it at
+    // (winSize - panelSize) / 2 puts the panel's actual center on the
+    // screen's actual center.
+    this->setPosition({(winSize.width - size.width) * 0.5f, (winSize.height - size.height) * 0.5f});
     this->setZOrder(10000);
     scene->addChild(this, 10000);
 

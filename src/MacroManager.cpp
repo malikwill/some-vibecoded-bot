@@ -165,12 +165,54 @@ void MacroManager::recordInput(int button, bool player1, bool down) {
     m_buffer.events.push_back(ev);
 }
 
-void MacroManager::setHudLabels(cocos2d::CCLabelBMFont* frameLabel, cocos2d::CCLabelBMFont* eventsLabel) {
-    m_hudFrameLabel = frameLabel;
-    m_hudEventsLabel = eventsLabel;
+void MacroManager::ensureHudLabels() {
+    if (m_hudFrameLabel && m_hudEventsLabel) return;
+
+    auto scene = CCDirector::sharedDirector()->getRunningScene();
+    if (!scene) return;
+
+    // Parented directly to the scene root, not to PlayLayer — removes
+    // any dependency on PlayLayer's own coordinate space or init timing.
+    // Bottom-right corner, right-anchored, well away from GD's own
+    // top-focused HUD elements (percentage/attempt labels) so nothing
+    // overlaps or gets drawn over.
+    auto winSize = CCDirector::sharedDirector()->getWinSize();
+
+    m_hudFrameLabel = CCLabelBMFont::create("Frame: 0", "chatFont.fnt");
+    m_hudFrameLabel->setAnchorPoint({1.f, 0.f});
+    m_hudFrameLabel->setScale(0.5f);
+    m_hudFrameLabel->setID("macrobot-frame-label"_spr);
+    m_hudFrameLabel->setPosition({winSize.width - 6.f, 40.f});
+    m_hudFrameLabel->retain(); // survive a scene-level removeAllChildren
+                               // without leaving us a dangling pointer;
+                               // released again in clearHud()
+    scene->addChild(m_hudFrameLabel, 20000);
+
+    m_hudEventsLabel = CCLabelBMFont::create("Events: 0", "chatFont.fnt");
+    m_hudEventsLabel->setAnchorPoint({1.f, 0.f});
+    m_hudEventsLabel->setScale(0.5f);
+    m_hudEventsLabel->setID("macrobot-events-label"_spr);
+    m_hudEventsLabel->setPosition({winSize.width - 6.f, 24.f});
+    m_hudEventsLabel->retain();
+    scene->addChild(m_hudEventsLabel, 20000);
+}
+
+void MacroManager::clearHud() {
+    if (m_hudFrameLabel) {
+        m_hudFrameLabel->removeFromParentAndCleanup(true);
+        m_hudFrameLabel->release();
+        m_hudFrameLabel = nullptr;
+    }
+    if (m_hudEventsLabel) {
+        m_hudEventsLabel->removeFromParentAndCleanup(true);
+        m_hudEventsLabel->release();
+        m_hudEventsLabel = nullptr;
+    }
 }
 
 void MacroManager::updateHud() {
+    ensureHudLabels();
+
     bool show = m_debugHudEnabled;
 
     if (m_hudFrameLabel) m_hudFrameLabel->setVisible(show);

@@ -59,16 +59,21 @@ public:
     size_t playedEventCount() const { return m_playCursor; }
     size_t totalArmedEventCount() const { return m_armed ? m_armed->events.size() : 0; }
 
-    // Hands the manager the current level's two HUD labels (created in
-    // PlayLayer::init, see main.cpp) so updateHud() can drive them. A
-    // method added to a $modify(PlayLayer) class isn't actually part of
-    // PlayLayer's real interface as seen from other classes/files — that
-    // was the "no member named updateHud in PlayLayer" build error — so
-    // the labels are routed through this always-accessible singleton
-    // instead, and updateHud() (called from the PlayerObject::update
-    // hook, which is proven to actually fire) does the refreshing here.
-    void setHudLabels(cocos2d::CCLabelBMFont* frameLabel, cocos2d::CCLabelBMFont* eventsLabel);
+    // Refreshes (and lazily creates, first call) the debug HUD's two
+    // labels. Deliberately NOT dependent on PlayLayer::init() handing
+    // anything off — the labels are created here, the first time this is
+    // called with a running scene available, and parented directly to
+    // the scene root rather than to PlayLayer. That removes any
+    // dependency on PlayLayer-specific init ordering or coordinate space
+    // entirely; the only remaining requirement is that SOMETHING calls
+    // updateHud() periodically, which PlayerObject::update already does
+    // (proven firing, since it's what drives playback).
     void updateHud();
+
+    // Destroys the HUD labels (if created) and clears them. Call this on
+    // leaving a level (PlayLayer::onQuit) so they don't linger attached
+    // to a scene that's about to go away.
+    void clearHud();
 
     // --- Hooks into these from PlayerObject::update, see main.cpp -------
     // Called once per actual physics substep (PlayerObject::update fires
@@ -99,6 +104,8 @@ public:
 
 private:
     MacroManager() = default;
+
+    void ensureHudLabels();
 
     Mode m_mode = Mode::Idle;
     std::string m_levelName;

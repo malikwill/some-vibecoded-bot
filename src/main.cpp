@@ -104,41 +104,15 @@ class $modify(MacroBotPlayLayer, PlayLayer) {
             MacroManager::get().setLevelName(level->m_levelName);
         }
 
-        // Debug HUD labels are plain children of PlayLayer itself — same
-        // as GD's own m_percentageLabel/m_attemptLabel, which are also
-        // direct PlayLayer children and stay fixed on screen throughout
-        // gameplay (confirmed against the generated bindings' field
-        // list), so PlayLayer's own coordinate space does NOT scroll/
-        // scale with the level camera the way an earlier revision of
-        // this mod assumed.
-        //
-        // The pointers are handed to MacroManager (setHudLabels) rather
-        // than kept in this class's own Fields: refreshing them from
-        // PlayerObject::update — a DIFFERENT $modify class, and the only
-        // hook confirmed to actually fire — can't call a method added
-        // here (that's what "no member named updateDebugHud in
-        // PlayLayer" was: a method added inside a $modify class isn't
-        // part of the real PlayLayer interface elsewhere). Routing
-        // through the always-accessible MacroManager singleton sidesteps
-        // that entirely.
-        auto frameLabel = CCLabelBMFont::create("Frame: 0", "chatFont.fnt");
-        frameLabel->setAnchorPoint({0.f, 1.f});
-        frameLabel->setScale(0.45f);
-        frameLabel->setID("macrobot-frame-label"_spr);
-        this->addChild(frameLabel, 1000);
-
-        auto eventsLabel = CCLabelBMFont::create("Events: 0", "chatFont.fnt");
-        eventsLabel->setAnchorPoint({0.f, 1.f});
-        eventsLabel->setScale(0.45f);
-        eventsLabel->setID("macrobot-events-label"_spr);
-        this->addChild(eventsLabel, 1000);
-
-        auto winSize = CCDirector::sharedDirector()->getWinSize();
-        frameLabel->setPosition({6.f, winSize.height - 6.f});
-        eventsLabel->setPosition({6.f, winSize.height - 20.f});
-
-        MacroManager::get().setHudLabels(frameLabel, eventsLabel);
-        MacroManager::get().updateHud();
+        // Debug HUD labels are created lazily by MacroManager itself
+        // (see MacroManager::ensureHudLabels), parented to the scene
+        // root rather than to PlayLayer — nothing to do here. This
+        // removes any dependency on PlayLayer's own init timing/
+        // coordinate space, which is what an earlier revision assumed
+        // (incorrectly blamed for the HUD not showing) and what led to
+        // routing everything through MacroManager in the first place
+        // (a method added to a $modify(PlayLayer) class isn't visible
+        // from PlayerObject's separate $modify class).
         return true;
     }
 
@@ -161,9 +135,9 @@ class $modify(MacroBotPlayLayer, PlayLayer) {
         if (mode == Mode::Playing) {
             MacroManager::get().stopPlaying();
         }
-        // Drop the HUD label pointers — this PlayLayer (and the labels,
-        // its children) is about to go away.
-        MacroManager::get().setHudLabels(nullptr, nullptr);
+        // Tear down the HUD labels — they're attached to this level's
+        // scene, which is about to go away.
+        MacroManager::get().clearHud();
         PlayLayer::onQuit();
     }
 };
@@ -246,8 +220,7 @@ class $modify(MacroBotPauseLayer, PauseLayer) {
         );
         btn->setID("macrobot-open-btn"_spr);
 
-        auto winSize = CCDirector::sharedDirector()->getWinSize();
-        CCPoint corner = {winSize.width - 35.f, winSize.height - 35.f};
+        CCPoint corner = {35.f, 35.f}; // bottom-left
 
         std::vector<CCRect> nearby;
         collectNearbyButtonRects(this, corner, 170.f, nearby);
@@ -256,13 +229,14 @@ class $modify(MacroBotPauseLayer, PauseLayer) {
         CCPoint pos = corner;
 
         if (!nearby.empty()) {
-            float lowestY = nearby.front().getMinY();
+            float highestY = nearby.front().getMaxY();
             for (auto& r : nearby) {
-                lowestY = std::min(lowestY, r.getMinY());
+                highestY = std::max(highestY, r.getMaxY());
             }
-            // Sit just below whatever's already stacked in this corner —
-            // "next slot in the column" instead of a fixed guessed offset.
-            pos = CCPoint(corner.x, lowestY - halfSize - 6.f);
+            // Sit just above whatever's already stacked in this corner —
+            // going up (not down, which would run off-screen from a
+            // bottom-left anchor) is the "next slot in the column".
+            pos = CCPoint(corner.x, highestY + halfSize + 6.f);
         }
 
         auto menu = CCMenu::create();
