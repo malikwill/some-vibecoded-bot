@@ -1,5 +1,48 @@
 # Changelog
 
+## v1.1.0-beta.9 (major update)
+- **Pause button moved to bottom-left** (was defaulting to top-right).
+  The "sit next to whatever's already stacked" collision logic now
+  probes upward from that corner instead of downward, since downward
+  from a bottom-left anchor would run off-screen.
+- **Bot menu panel now opens centered** instead of bottom-left (per this
+  request — reverses the last update's change).
+- **Debug HUD rewritten** to remove its remaining dependency on
+  `PlayLayer`-specific timing/parenting entirely:
+  - Labels are now created lazily by `MacroManager` itself, the first
+    time `updateHud()` runs with a scene available, and parented
+    directly to the scene root — not to `PlayLayer` at all, and not
+    handed off from `PlayLayer::init()` (which no longer does anything
+    HUD-related).
+  - Moved to the bottom-right corner, right-anchored, away from GD's own
+    top-focused HUD elements (percentage/attempt labels) in case
+    overlap was ever part of the problem.
+  - Added proper `retain()`/`release()` around the labels' lifetime so a
+    scene teardown that doesn't go through our own `clearHud()` (called
+    from `PlayLayer::onQuit`) leaves a safely-orphaned node instead of a
+    dangling pointer.
+- **Investigated accuracy for ship/wave and other non-cube gamemodes.**
+  Short version: capture/playback needed no gamemode-specific changes at
+  all — GD funnels every holdable control (jump, ship thrust, wave
+  direction, ball switch, UFO flap, robot jump, spider teleport, swing
+  flip) through the same `handleButton` call already hooked generically.
+  What genuinely differs: ship/wave are continuous, hold-sensitive
+  controls where precise play needs many more, much shorter press/
+  release pairs per second than cube ever does — real extra input
+  transitions, not an inefficiency in storing them, and also why ship/
+  wave sections have effectively zero tolerance for timing drift (a
+  cube jump has some forgiveness; a continuous mode's position a moment
+  later is a direct function of exactly when you let go).
+  - Added a real size optimization for that denser pattern anyway:
+    `.mbf` bumped to format v4, storing each event's frame as a
+    **varint delta** from the previous event's frame (LEB128-style)
+    instead of a fixed 4-byte absolute value, and packing `state`+
+    `player` into one flags byte instead of two. Dense ship/wave input
+    typically drops from 8 bytes/event to 3-4; sparse cube sections
+    essentially never end up bigger either. Fully lossless — the
+    in-memory `InputEvent`/`MacroData` structs are unchanged, only the
+    on-disk byte layout is different.
+
 ## v1.1.0-beta.8 (major update — bot menu rebuilt)
 - **Rebuilt the bot menu panel from scratch, no longer based on
   `geode::Popup`/`FLAlertLayer`.** The last attempt to fix its position

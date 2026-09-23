@@ -5,10 +5,10 @@ macros, built for **GD 2.2081 / Geode SDK 5.10.1 / Android x64**.
 
 ## What it does
 
-- A circular button is added to the **pause menu**, in its rightful spot
-  in the existing button row (not overlapping whatever GD already has
-  there). Tapping it opens the bot menu, fixed at the **bottom-left** of
-  the screen: **Record**, **Save**, **Play**, **Load**.
+- A circular button is added to the **pause menu's bottom-left**
+  corner (stacking upward next to whatever else is already there rather
+  than overlapping it). Tapping it opens the bot menu, **centered** on
+  screen: **Record**, **Save**, **Play**, **Load**.
 - **Record** — automatically enters practice mode and resumes gameplay.
   Every button press/release is captured against the exact physics
   substep it happened on (via `PlayerObject::update`, which fires once
@@ -25,10 +25,11 @@ macros, built for **GD 2.2081 / Geode SDK 5.10.1 / Android x64**.
   stuck together). Choosing one loads it and immediately starts playing
   it (auto-clicks Play for you).
 - **Debug HUD** — a checkbox in the bot menu toggles a small on-screen
-  overlay, top-left of the level, showing the live frame counter and an
-  event counter (recorded count while Recording, played/total while
-  Playing, armed count otherwise), so what recording/playback is doing is
-  actually visible instead of a black box.
+  overlay, bottom-right of the level (parented to the scene root, not
+  PlayLayer, and created lazily on first use), showing the live frame
+  counter and an event counter (recorded count while Recording,
+  played/total while Playing, armed count otherwise), so what
+  recording/playback is doing is actually visible instead of a black box.
 
 ## Macro format
 
@@ -47,6 +48,23 @@ render-frame count. An earlier revision of this mod counted
 `PlayLayer::update()` calls instead — which fire once per *rendered*
 frame — and that mismatch (GD runs several physics substeps inside a
 single rendered frame) was the real reason playback didn't work at all.
+
+**Ship/wave and other non-cube gamemodes** needed no special handling:
+GD funnels every holdable control (cube jump, ship thrust, wave
+direction, ball switch, UFO flap, robot jump, spider teleport, swing
+flip) through the same `handleButton` call this mod already hooks
+generically, so they're captured with the same mechanism and the same
+per-substep accuracy as cube. What genuinely differs is that ship/wave
+are continuous, hold-sensitive controls — precise play needs many more,
+much shorter press/release pairs per second than cube ever does, which
+is real extra input, not a storage inefficiency, and it's also why
+those sections have effectively zero tolerance for a single tick of
+timing drift (a cube jump has some forgiveness; a continuous mode's
+position a moment later is a direct function of exactly when you let
+go). On format v4, each event's `frame` is stored as a **varint delta**
+from the previous event's frame instead of a fixed 4-byte value, and
+`state`+`player` are packed into one flags byte — dense ship/wave input
+typically drops from 8 bytes/event to 3-4, fully losslessly.
 
 ## Project layout
 
@@ -113,17 +131,20 @@ The `PlayerObject::update` hook is already proven working (it's what
 makes playback work at all), so it's the safe place to drive the HUD too,
 via a public `updateDebugHud()` method added to `PlayLayer`.
 
-The debug HUD's labels are plain children of `PlayLayer` itself. An
-earlier revision moved them to `UILayer` on the theory that `PlayLayer`'s
-coordinate space scrolls with the level camera — but `UILayer`'s own
-methods (`enableEditorMode`, `editorPlaytest`) show it's actually the
-level editor's UI layer, not the gameplay HUD, so it was most likely null
-during normal play (silently falling back to the "broken" parent anyway).
-Checking the actual generated `PlayLayer` field list instead shows
-`m_percentageLabel`/`m_attemptLabel` are plain direct children of
-`PlayLayer` that stay fixed on screen throughout gameplay — so
-`PlayLayer`'s own coordinate space was never the problem, and the labels
-are back to being direct children of it, same as GD's own HUD elements.
+The debug HUD's labels are created lazily by `MacroManager` itself
+(`ensureHudLabels()`, called from `updateHud()`) and parented directly to
+the scene root — not to `PlayLayer` and not handed off from
+`PlayLayer::init()` at all anymore. Earlier revisions tried parenting to
+`PlayLayer` directly, then to `UILayer` (wrong guess — `UILayer`'s own
+methods like `enableEditorMode`/`editorPlaytest` show it's the level
+editor's UI layer, not the gameplay HUD, so it's most likely null during
+normal play), then back to `PlayLayer` again with the refresh routed
+through `MacroManager` for cross-`$modify`-class reasons (see below).
+Parenting to the scene root sidesteps needing to reason about any of
+`PlayLayer`'s specifics at all. The labels are `retain()`'d while held
+here and `release()`'d in `clearHud()` (called from `PlayLayer::onQuit`)
+so a scene teardown that doesn't go through that path leaves a safely
+orphaned node rather than a dangling pointer.
 
 `src/main.cpp` also still hooks `PlayLayer::resetLevel`, `PlayLayer::onQuit`,
 and `PauseLayer::customSetup` — these ARE declared directly on their
