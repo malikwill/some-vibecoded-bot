@@ -3,6 +3,7 @@
 #include <fstream>
 #include <algorithm>
 #include <cmath>
+#include <map>
 
 using namespace geode::prelude;
 
@@ -34,6 +35,32 @@ static std::string sanitizeFilename(const std::string& raw) {
     }
     if (out.empty()) out = "macro";
     return out;
+}
+
+// Removes, for each (button, player) combo, its final event IF that
+// final event is a press — i.e. a button still "held" when recording
+// stopped. GD's hold-jump-to-restart gesture (or a jump simply cut short
+// by death) generates a real handleButton(true, ...) call indistinguishable
+// from any other press at the moment it happens, but it isn't meaningful
+// gameplay input worth keeping in the saved macro.
+static void trimTrailingUnreleasedPresses(std::vector<InputEvent>& events) {
+    std::map<std::pair<uint8_t, bool>, size_t> lastIndex;
+    for (size_t i = 0; i < events.size(); i++) {
+        lastIndex[{events[i].button, events[i].player}] = i;
+    }
+
+    std::vector<size_t> toRemove;
+    for (auto& [key, idx] : lastIndex) {
+        if (events[idx].state) {
+            toRemove.push_back(idx);
+        }
+    }
+    if (toRemove.empty()) return;
+
+    std::sort(toRemove.begin(), toRemove.end());
+    for (auto it = toRemove.rbegin(); it != toRemove.rend(); ++it) {
+        events.erase(events.begin() + static_cast<long>(*it));
+    }
 }
 
 void MacroManager::startRecording() {
@@ -99,10 +126,26 @@ void MacroManager::truncateToFrame(uint32_t frame) {
 
 void MacroManager::onLevelReset(float respawnX) {
     if (m_mode == Mode::Recording) {
+        if (!m_haveStartX) {
+            // No real gameplay has happened yet — this is almost
+            // certainly the reset that fires when practice mode itself
+            // first kicks in, immediately after pressing Record (before
+            // a single position sample has been logged). There's
+            // nothing to end or roll back yet: just absorb it and keep
+            // Recording. The very next logPosition() call, once actual
+            // gameplay resumes, establishes the session's real starting
+            // position. Without this check, that initial reset was being
+            // misread as "genuine restart" every time (m_haveStartX &&
+            // ... short-circuits to false when it's false), ending the
+            // session before the player had even started playing.
+            m_frame = 0;
+            return;
+        }
+
         // A checkpoint respawn lands meaningfully past the session's
         // recorded starting X; a genuine restart lands back at it. A
         // small tolerance absorbs floating-point noise in the compare.
-        bool isCheckpointRespawn = m_haveStartX && std::fabs(respawnX - m_sessionStartX) >= 8.f;
+        bool isCheckpointRespawn = std::fabs(respawnX - m_sessionStartX) >= 8.f;
 
         if (isCheckpointRespawn) {
             // The level didn't actually restart — recording continues.
@@ -117,7 +160,13 @@ void MacroManager::onLevelReset(float respawnX) {
         }
 
         // Genuine restart from the very beginning — the session is
-        // "finished": stop capturing and wait for Save.
+        // "finished": stop capturing and wait for Save. Trim any
+        // trailing press with no matching release first — GD's
+        // hold-jump-to-restart gesture (or a jump simply cut short by
+        // death) generates a real handleButton(true, ...) call that
+        // gets recorded like any other press, but it isn't meaningful
+        // gameplay input to keep in the macro.
+        trimTrailingUnreleasedPresses(m_buffer.events);
         m_buffer.totalFrames = m_frame;
         m_mode = Mode::Standby;
         m_positionLog.clear();
