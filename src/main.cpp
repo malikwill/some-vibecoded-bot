@@ -123,6 +123,18 @@ class $modify(MacroBotPlayLayer, PlayLayer) {
 
     void resetLevel() {
         PlayLayer::resetLevel();
+        // Reading the player's position immediately here was the actual
+        // bug behind "never goes to standby": it isn't necessarily
+        // settled into its final post-reset spot synchronously within
+        // this call yet (still reflecting wherever the player died),
+        // which made every reset — including genuine restarts — read as
+        // "far from the start" and get misclassified as a checkpoint
+        // respawn. Check one frame later instead, by which point the
+        // position has actually caught up.
+        this->scheduleOnce(schedule_selector(MacroBotPlayLayer::checkLevelResetKind), 0.0f);
+    }
+
+    void checkLevelResetKind(float) {
         // If we were Recording, this is either a checkpoint respawn
         // (recording continues, rolled back to that point) or a genuine
         // restart-to-the-beginning ("the session finished") — see
