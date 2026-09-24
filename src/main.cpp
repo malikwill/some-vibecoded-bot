@@ -73,6 +73,11 @@ class $modify(MacroBotPlayerObject, PlayerObject) {
                 pl->handleButton(down, button, /*player2=*/!isPlayer1);
             });
 
+            // Feeds the position->frame log used to figure out which
+            // frame a later checkpoint respawn should roll back to (see
+            // MacroManager::onLevelReset). No-op outside Recording.
+            MacroManager::get().logPosition(this->getPositionX());
+
             // Piggyback the debug HUD's refresh on this same hook rather
             // than a separate PlayLayer::update(dt) hook: PlayLayer does
             // NOT itself declare update(dt) (confirmed against the full
@@ -118,10 +123,12 @@ class $modify(MacroBotPlayLayer, PlayLayer) {
 
     void resetLevel() {
         PlayLayer::resetLevel();
-        // If we were Recording, this is "the attempt/session finished":
-        // MacroManager moves to Standby (keeps the buffer, stops
-        // capturing further attempts) until the user taps Save.
-        MacroManager::get().onLevelReset();
+        // If we were Recording, this is either a checkpoint respawn
+        // (recording continues, rolled back to that point) or a genuine
+        // restart-to-the-beginning ("the session finished") — see
+        // MacroManager::onLevelReset for how it tells the two apart.
+        float respawnX = this->m_player1 ? this->m_player1->getPositionX() : 0.f;
+        MacroManager::get().onLevelReset(respawnX);
     }
 
     void onQuit() {

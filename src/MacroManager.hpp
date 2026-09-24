@@ -91,12 +91,32 @@ public:
     // no-op while on Standby — that's the whole point of Standby).
     void recordInput(int button, bool player1, bool down);
 
-    // Called when the level is (re)started, e.g. PlayLayer::resetLevel.
-    // If we were Recording, this is "the session finished": stop
-    // capturing (move to Standby) but keep what was captured. Attempts
-    // made after this point are not recorded until the user Saves (which
-    // returns to Idle) or hits Record again (which discards and restarts).
-    void onLevelReset();
+    // Called from PlayerObject::update (see main.cpp) while Recording,
+    // with the player's current X position. Used to build a lightweight
+    // log matching "position reached" to "frame it happened on", so a
+    // later checkpoint respawn (see onLevelReset) can figure out which
+    // frame to roll back to. No-op outside Recording.
+    void logPosition(float x);
+
+    // Called when PlayLayer::resetLevel() fires, with the player's X
+    // position AFTER the reset/respawn has happened. This covers two
+    // different real situations that both call resetLevel() — confirmed
+    // by observing the debug HUD's frame counter incorrectly zeroing on
+    // every single practice-mode death, not just genuine restarts:
+    //   - A CHECKPOINT RESPAWN (practice mode, dying with a checkpoint
+    //     already placed): the level doesn't actually restart, it just
+    //     jumps back to a mid-level position. If we're Recording, this
+    //     should NOT end the session — it should roll the frame counter
+    //     and the recorded buffer back to whatever frame the player was
+    //     at when they were last at (approximately) this X position
+    //     (via the log logPosition built), discarding only the events
+    //     after that point (the attempt that just died), and keep
+    //     capturing from there. Detected by respawnX being meaningfully
+    //     past the session's recorded starting position.
+    //   - A GENUINE RESTART (respawn position matches the start): the
+    //     session is "finished" as before — stop capturing (move to
+    //     Standby) but keep what was captured.
+    void onLevelReset(float respawnX);
 
     void setLevelName(const std::string& name) { m_levelName = name; }
 
@@ -106,6 +126,8 @@ private:
     MacroManager() = default;
 
     void ensureHudLabels();
+    uint32_t frameForPosition(float x) const;
+    void truncateToFrame(uint32_t frame);
 
     Mode m_mode = Mode::Idle;
     std::string m_levelName;
@@ -116,6 +138,13 @@ private:
     MacroData m_buffer;                    // recording / standby buffer
     std::optional<MacroData> m_armed;      // loaded / just-saved, ready to play
     std::optional<std::string> m_armedDisplayName;
+
+    // Position -> frame log, built while Recording, used to figure out
+    // which frame a checkpoint respawn should roll back to.
+    std::vector<std::pair<float, uint32_t>> m_positionLog;
+    float m_sessionStartX = 0.f;
+    bool m_haveStartX = false;
+    int m_logThrottle = 0;
 
     cocos2d::CCLabelBMFont* m_hudFrameLabel = nullptr;
     cocos2d::CCLabelBMFont* m_hudEventsLabel = nullptr;

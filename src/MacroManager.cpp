@@ -1,6 +1,8 @@
 #include "MacroManager.hpp"
 #include <Geode/Geode.hpp>
 #include <fstream>
+#include <algorithm>
+#include <cmath>
 
 using namespace geode::prelude;
 
@@ -39,19 +41,91 @@ void MacroManager::startRecording() {
     m_frame = 0;
     m_buffer = MacroData{};
     m_buffer.levelName = m_levelName;
+    m_positionLog.clear();
+    m_haveStartX = false;
+    m_logThrottle = 0;
     log::info("MacroBot: recording started for level '{}'", m_levelName);
 }
 
-void MacroManager::onLevelReset() {
+void MacroManager::logPosition(float x) {
+    if (m_mode != Mode::Recording) return;
+
+    if (!m_haveStartX) {
+        m_sessionStartX = x;
+        m_haveStartX = true;
+    }
+
+    // Throttle: a sample every few substeps is already far more
+    // resolution than matching a respawn position back to a frame
+    // needs, and keeps this cheap over a long recording.
+    if (++m_logThrottle < 4) return;
+    m_logThrottle = 0;
+
+    // Keep the log monotonic (skip samples that don't advance past the
+    // last one) and bounded, so an extremely long recording can't grow
+    // this unboundedly.
+    if (!m_positionLog.empty() && x <= m_positionLog.back().first) return;
+    m_positionLog.emplace_back(x, m_frame);
+    if (m_positionLog.size() > 20000) {
+        m_positionLog.erase(m_positionLog.begin(), m_positionLog.begin() + 10000);
+    }
+}
+
+uint32_t MacroManager::frameForPosition(float x) const {
+    uint32_t best = 0;
+    float bestX = -1e9f;
+    for (auto& sample : m_positionLog) {
+        if (sample.first <= x && sample.first > bestX) {
+            bestX = sample.first;
+            best = sample.second;
+        }
+    }
+    return best;
+}
+
+void MacroManager::truncateToFrame(uint32_t frame) {
+    auto& events = m_buffer.events;
+    events.erase(
+        std::remove_if(events.begin(), events.end(),
+            [frame](const InputEvent& ev) { return ev.frame > frame; }),
+        events.end()
+    );
+    m_positionLog.erase(
+        std::remove_if(m_positionLog.begin(), m_positionLog.end(),
+            [frame](const std::pair<float, uint32_t>& sample) { return sample.second > frame; }),
+        m_positionLog.end()
+    );
+}
+
+void MacroManager::onLevelReset(float respawnX) {
     if (m_mode == Mode::Recording) {
-        // The attempt that was just running is what we captured — the
-        // session is now "finished". Stop capturing further attempts and
-        // wait for the user to explicitly Save.
+        // A checkpoint respawn lands meaningfully past the session's
+        // recorded starting X; a genuine restart lands back at it. A
+        // small tolerance absorbs floating-point noise in the compare.
+        bool isCheckpointRespawn = m_haveStartX && std::fabs(respawnX - m_sessionStartX) >= 8.f;
+
+        if (isCheckpointRespawn) {
+            // The level didn't actually restart — recording continues.
+            // Roll the frame counter and the buffer back to whatever
+            // frame we were at when we were last at (approximately) this
+            // position, discarding only the attempt that just died.
+            uint32_t resumeFrame = frameForPosition(respawnX);
+            truncateToFrame(resumeFrame);
+            m_frame = resumeFrame;
+            log::info("MacroBot: checkpoint respawn — resuming recording at frame {}", m_frame);
+            return;
+        }
+
+        // Genuine restart from the very beginning — the session is
+        // "finished": stop capturing and wait for Save.
         m_buffer.totalFrames = m_frame;
         m_mode = Mode::Standby;
+        m_positionLog.clear();
+        m_haveStartX = false;
         log::info("MacroBot: attempt finished ({} events, {} frames) — waiting for Save",
                    m_buffer.events.size(), m_frame);
     }
+
     if (m_mode == Mode::Playing) {
         m_playCursor = 0;
     }
@@ -95,6 +169,8 @@ void MacroManager::saveStandbyMacro() {
 void MacroManager::cancelRecording() {
     m_mode = Mode::Idle;
     m_buffer = MacroData{};
+    m_positionLog.clear();
+    m_haveStartX = false;
 }
 
 bool MacroManager::loadMacroFromFile(const std::filesystem::path& path) {
