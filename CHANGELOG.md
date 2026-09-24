@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.1.0-beta.10
+Your report that the debug HUD's frame counter zeroed out on every
+single death in practice mode (not just genuine restarts) turned out to
+reveal a real, previously-unhandled case: `PlayLayer::resetLevel()`
+fires for BOTH a checkpoint respawn (practice mode, dying with a
+checkpoint already placed — the level doesn't actually restart, it just
+jumps back to a mid-level position) and a genuine restart-to-the-
+beginning, and this mod was treating every single one of them as "the
+session finished", ending the recording after the very first death.
+
+- `MacroManager` now tells the two apart by comparing the player's X
+  position right after the reset against the position recorded at the
+  start of the session: landing back at (approximately) the start means
+  a genuine restart (session finished, as before); landing meaningfully
+  further in means a checkpoint respawn.
+- On a checkpoint respawn, recording now **continues** instead of ending
+  — the frame counter and the recorded buffer are rolled back to
+  whatever frame the player was at when they were last at (about) that
+  position (tracked via a lightweight position→frame log built during
+  recording), discarding only the events from the attempt that just
+  died. The debug HUD's frame counter now reflects that rollback too,
+  instead of zeroing.
+- A genuine restart still clears everything and moves to Standby exactly
+  as before — only checkpoint respawns get the new behavior.
+
 ## v1.1.0-beta.9 (major update)
 - **Pause button moved to bottom-left** (was defaulting to top-right).
   The "sit next to whatever's already stacked" collision logic now
