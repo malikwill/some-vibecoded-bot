@@ -1,5 +1,43 @@
 # Changelog
 
+## v1.1.0-beta.12
+- Fixed "one death immediately puts it on Standby" — a second, distinct
+  bug from last time's fix. Pressing Record calls `enterPracticeAndResume()`,
+  and if practice mode wasn't already active, entering it fires its own
+  internal `resetLevel()` — before a single position sample has ever
+  been logged (`m_haveStartX` still false at that point). The classifier
+  short-circuits `m_haveStartX && ...` to `false` whenever it's false,
+  which was making that very first, entirely automatic reset get read as
+  "genuine restart" every time — ending the session before the player
+  had even started playing. Now, a reset with no position history yet is
+  just absorbed (stays Recording, nothing to roll back), and the actual
+  session-start position gets established by the next real position
+  sample once gameplay resumes.
+- Fixed a manual restart counting as a spurious recorded event. GD's
+  hold-jump-to-restart gesture (holding the jump button down triggers a
+  restart) generates a real `handleButton(true, ...)` call, indistinguishable
+  from any other press at the moment it happens — so it was getting
+  recorded like normal gameplay input even though it isn't any. On a
+  genuine restart, the buffer is now trimmed first: for each
+  (button, player) pair, if its very last recorded event is a press with
+  no matching release after it, that press is dropped before the macro
+  is finalized. Covers both the restart gesture and a jump that's simply
+  cut short by death (also not meaningful to keep).
+
+## v1.1.0-beta.11
+- Fixed "never goes to Standby" from last time. The actual bug: reading
+  the player's position immediately after calling through to
+  `PlayLayer::resetLevel()` isn't reliable — it doesn't appear to be
+  settled into its final post-reset spot synchronously within that same
+  call (still reading as wherever the player died a moment earlier).
+  Since that position is almost never close to the session's start, a
+  genuine restart was getting misread as "far from start" every time —
+  exactly like a checkpoint respawn — so the "session finished" branch
+  never ran and nothing ever moved to Standby.
+  Fixed by deferring the check one frame (`scheduleOnce`, the same
+  pattern already used elsewhere in this mod), by which point the
+  position has actually caught up to its real post-reset value.
+
 ## v1.1.0-beta.10
 Your report that the debug HUD's frame counter zeroed out on every
 single death in practice mode (not just genuine restarts) turned out to
