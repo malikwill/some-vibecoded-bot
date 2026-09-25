@@ -97,6 +97,7 @@ void MacroManager::logPosition(float x) {
     if (!m_haveStartX) {
         m_sessionStartX = x;
         m_haveStartX = true;
+        log::info("MacroBot: [log] session start position captured: x={:.2f} (frame {})", x, m_frame);
     }
 
     // Throttle: a sample every few substeps is already far more
@@ -142,6 +143,10 @@ void MacroManager::truncateToFrame(uint32_t frame) {
 }
 
 void MacroManager::onLevelReset(float respawnX, bool practiceMode) {
+    log::info("MacroBot: [reset] mode={} practiceMode={} respawnX={:.2f} haveStartX={} sessionStartX={:.2f} frame={} bufferedEvents={} positionLogSize={}",
+               static_cast<int>(m_mode), practiceMode, respawnX, m_haveStartX, m_sessionStartX, m_frame,
+               m_buffer.events.size(), m_positionLog.size());
+
     if (m_mode == Mode::Recording) {
         if (!m_haveStartX) {
             // No real gameplay has happened yet — this is almost
@@ -155,6 +160,7 @@ void MacroManager::onLevelReset(float respawnX, bool practiceMode) {
             // misread as "genuine restart" every time (m_haveStartX &&
             // ... short-circuits to false when it's false), ending the
             // session before the player had even started playing.
+            log::info("MacroBot: [reset] no start position logged yet — absorbing, staying Recording");
             m_frame = 0;
             return;
         }
@@ -169,17 +175,24 @@ void MacroManager::onLevelReset(float respawnX, bool practiceMode) {
             // frame at that position, discarding only the failed attempt.
             // A respawn at the start is a normal practice-mode death (or
             // restart), so roll back to frame 0 and keep Recording.
-            bool isCheckpointRespawn = std::fabs(respawnX - m_sessionStartX) >= 8.f;
+            float delta = std::fabs(respawnX - m_sessionStartX);
+            bool isCheckpointRespawn = delta >= 8.f;
+            log::info("MacroBot: [reset] still in practice mode — delta={:.2f} -> {}",
+                       delta, isCheckpointRespawn ? "CHECKPOINT RESPAWN" : "RESET AT START");
 
             if (isCheckpointRespawn) {
                 uint32_t resumeFrame = frameForPosition(respawnX);
+                size_t beforeCount = m_buffer.events.size();
                 truncateToFrame(resumeFrame);
                 m_frame = resumeFrame;
-                log::info("MacroBot: checkpoint respawn — resuming recording at frame {}", m_frame);
+                log::info("MacroBot: checkpoint respawn — resuming recording at frame {} (events {} -> {})",
+                           m_frame, beforeCount, m_buffer.events.size());
             } else {
+                size_t beforeCount = m_buffer.events.size();
                 truncateToFrame(0);
                 m_frame = 0;
-                log::info("MacroBot: practice-mode reset at start — restarting recording from frame 0");
+                log::info("MacroBot: practice-mode reset at start — restarting recording from frame 0 (events {} -> {})",
+                           beforeCount, m_buffer.events.size());
             }
             return;
         }
@@ -190,8 +203,11 @@ void MacroManager::onLevelReset(float respawnX, bool practiceMode) {
         // simply cut short by death), then anything landing on essentially
         // the same tick as this reset (GD force-releasing a still-held
         // button as part of its own death cleanup).
+        size_t beforeTrim = m_buffer.events.size();
         trimTrailingUnreleasedPresses(m_buffer.events);
         trimTrailingEventsAtFrame(m_buffer.events, m_frame);
+        log::info("MacroBot: [reset] practice mode ended — trimmed {} -> {} events, moving to Standby",
+                   beforeTrim, m_buffer.events.size());
         m_buffer.totalFrames = m_frame;
         m_mode = Mode::Standby;
         m_positionLog.clear();
@@ -241,6 +257,8 @@ void MacroManager::saveStandbyMacro() {
 }
 
 void MacroManager::cancelRecording() {
+    log::info("MacroBot: cancelRecording — discarding {} buffered events (was mode={})",
+               m_buffer.events.size(), static_cast<int>(m_mode));
     m_mode = Mode::Idle;
     m_buffer = MacroData{};
     m_positionLog.clear();

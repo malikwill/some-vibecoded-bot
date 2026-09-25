@@ -141,6 +141,8 @@ class $modify(MacroBotPlayLayer, PlayLayer) {
         // event, corrupting the recording ("events weirdly changed",
         // nothing actually saving). Only the latest resetLevel() call's
         // check should ever run.
+        log::info("MacroBot: [resetLevel] fired (m_isPracticeMode={}) — scheduling reset-kind check for next frame",
+                   this->m_isPracticeMode);
         this->unschedule(schedule_selector(MacroBotPlayLayer::checkLevelResetKind));
         this->scheduleOnce(schedule_selector(MacroBotPlayLayer::checkLevelResetKind), 0.0f);
     }
@@ -150,7 +152,10 @@ class $modify(MacroBotPlayLayer, PlayLayer) {
         // the same recording session. A death at the level start is
         // indistinguishable from a manual restart by position alone, so
         // X must not be used as the signal to enter Standby.
-        float respawnX = this->m_player1 ? this->m_player1->getPositionX() : 0.f;
+        bool hasPlayer = this->m_player1 != nullptr;
+        float respawnX = hasPlayer ? this->m_player1->getPositionX() : 0.f;
+        log::info("MacroBot: [checkLevelResetKind] hasPlayer1={} respawnX={:.2f} practiceModeNow={}",
+                   hasPlayer, respawnX, this->m_isPracticeMode);
         MacroManager::get().onLevelReset(respawnX, this->m_isPracticeMode);
     }
 
