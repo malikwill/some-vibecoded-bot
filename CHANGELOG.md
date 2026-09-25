@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.0-beta.15
+- `resources/logo.png` was 2KB (256×256, mostly flat color) and Geode's
+  build rejected it — regenerated larger and with real detail (radial
+  gradient background, circuit-line accents, a soft-shadowed play
+  triangle) at 384×384, landing at ~25KB, within the expected range.
+
 ## v1.1.0-beta.14
 - Fixed the "started a new session on another level, inputs at the end
   never saved, event count changed weirdly" bug. `resetLevel()` can fire
