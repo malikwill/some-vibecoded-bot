@@ -180,23 +180,25 @@ practice-mode flag and update `enterPracticeAndResume()` in
 
 - **Record** discards anything previously captured/pending and starts a
   fresh capture, auto-entering practice mode.
-- `PlayLayer::resetLevel()` fires for two different real situations, and
-  they're handled differently:
-  - **Checkpoint respawn** (dying in practice mode with a checkpoint
-    already placed — the level doesn't actually restart, it just jumps
-    back to a mid-level position): recording **continues**. The frame
-    counter and the buffer are rolled back to whatever frame the player
-    was at when they were last at (about) that position — tracked via a
-    lightweight position→frame log built while Recording — discarding
-    only the events from the attempt that just died.
-  - **Genuine restart** (the respawn position matches where the session
-    started): this *is* "the session finished" — capturing stops (moves
-    to **Standby**), keeping what was captured; nothing further is
-    recorded until you act. Detected by comparing the post-reset
-    position against the position recorded at the start of the session,
-    not by assuming every reset is a restart (an earlier revision did,
-    which ended the session after the very first death in practice mode
-    regardless of checkpoints).
+- `PlayLayer::resetLevel()` fires for several different real situations,
+  and **`PlayLayer::m_isPracticeMode` — not position — is the authority**
+  on whether a given reset ends the recording session. Position alone is
+  ambiguous: a death before the first checkpoint respawns at the level's
+  start, which looks identical to a manual restart. While practice mode
+  is still active, every reset stays part of the same session:
+  - **Checkpoint respawn** (lands meaningfully past the session's
+    starting position): the frame counter and buffer roll back to
+    whatever frame the player was at when they were last at (about) that
+    position — tracked via a lightweight position→frame log built while
+    Recording — discarding only the events from the attempt that just
+    died. Recording continues.
+  - **Reset at the start while still in practice mode** (a death before
+    any checkpoint, or a deliberate restart within practice): rolls back
+    to frame 0 and clears the buffer, but recording still continues —
+    this is a normal retry, not the end of the session.
+  - **Practice mode has ended**: only now does the session actually
+    finish — capturing stops (moves to **Standby**), keeping what was
+    captured; nothing further is recorded until you act.
 - **Save** (only enabled on Standby) writes the captured attempt to disk
   and arms it for Play. Tapping **Record** again instead of Save discards
   the standby buffer and starts over.

@@ -1,5 +1,33 @@
 # Changelog
 
+## v1.1.0-beta.16
+The "dying once still puts it on Standby" bug is fixed — but not by my
+approach. You found a better one: use `PlayLayer::m_isPracticeMode`
+(GD's own authoritative state) as the signal for whether a reset still
+belongs to the same recording session, instead of trying to infer it
+purely from position deltas.
+
+- `MacroManager::onLevelReset` now takes an explicit `practiceMode`
+  parameter. While practice mode is active, *every* reset — a checkpoint
+  respawn or a death before the first checkpoint (which lands back at
+  the start, same as a manual restart would) — stays part of the same
+  session: a checkpoint respawn rolls the frame/buffer back to that
+  checkpoint, and a reset at the start rolls back to frame 0, but
+  neither ends the recording. The session only actually finishes once
+  practice mode is no longer active.
+- This replaces the position-distance-only heuristic that kept
+  misclassifying a death-at-the-start (indistinguishable from a manual
+  restart by position alone) as "genuine restart, end the session" —
+  which was the real root cause all along.
+- Added detailed logging through the whole decision path on top of this
+  (tagged `MacroBot: [reset]` / `[log]` / `[checkLevelResetKind]` /
+  `[resetLevel]`): the raw `respawnX` and `m_isPracticeMode` read at each
+  step, every `resetLevel()` firing, the session's captured starting X,
+  and on every reset — the mode, both positions, the computed delta,
+  which branch it took, and before/after event counts for whichever trim
+  ran. Useful for any future edge case in this area; grep the Geode log
+  for `MacroBot:` after reproducing something to see the full trace.
+
 ## v1.1.0-beta.15
 - `resources/logo.png` was 2KB (256×256, mostly flat color) and Geode's
   build rejected it — regenerated larger and with real detail (radial
