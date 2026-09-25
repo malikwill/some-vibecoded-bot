@@ -28,6 +28,10 @@ public:
     // previously pending (recording or standby).
     void startRecording();
 
+    // Ends the active recording without discarding the captured attempt.
+    // The result enters Standby so it can be saved with the Save button.
+    void stopRecording();
+
     // Writes whatever's currently pending (must be in Standby, i.e. a
     // finished attempt that hasn't been saved yet) to disk, named after
     // the level, and arms it so Play works immediately. No-op if there's
