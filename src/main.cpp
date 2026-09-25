@@ -146,12 +146,12 @@ class $modify(MacroBotPlayLayer, PlayLayer) {
     }
 
     void checkLevelResetKind(float) {
-        // If we were Recording, this is either a checkpoint respawn
-        // (recording continues, rolled back to that point) or a genuine
-        // restart-to-the-beginning ("the session finished") — see
-        // MacroManager::onLevelReset for how it tells the two apart.
+        // Practice mode determines whether this reset is still part of
+        // the same recording session. A death at the level start is
+        // indistinguishable from a manual restart by position alone, so
+        // X must not be used as the signal to enter Standby.
         float respawnX = this->m_player1 ? this->m_player1->getPositionX() : 0.f;
-        MacroManager::get().onLevelReset(respawnX);
+        MacroManager::get().onLevelReset(respawnX, this->m_isPracticeMode);
     }
 
     void onQuit() {

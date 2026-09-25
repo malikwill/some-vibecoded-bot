@@ -98,25 +98,18 @@ public:
     // frame to roll back to. No-op outside Recording.
     void logPosition(float x);
 
-    // Called when PlayLayer::resetLevel() fires, with the player's X
-    // position AFTER the reset/respawn has happened. This covers two
-    // different real situations that both call resetLevel() — confirmed
-    // by observing the debug HUD's frame counter incorrectly zeroing on
-    // every single practice-mode death, not just genuine restarts:
-    //   - A CHECKPOINT RESPAWN (practice mode, dying with a checkpoint
-    //     already placed): the level doesn't actually restart, it just
-    //     jumps back to a mid-level position. If we're Recording, this
-    //     should NOT end the session — it should roll the frame counter
-    //     and the recorded buffer back to whatever frame the player was
-    //     at when they were last at (approximately) this X position
-    //     (via the log logPosition built), discarding only the events
-    //     after that point (the attempt that just died), and keep
-    //     capturing from there. Detected by respawnX being meaningfully
-    //     past the session's recorded starting position.
-    //   - A GENUINE RESTART (respawn position matches the start): the
-    //     session is "finished" as before — stop capturing (move to
-    //     Standby) but keep what was captured.
-    void onLevelReset(float respawnX);
+    // Called when PlayLayer::resetLevel() fires, after the player's
+    // position has settled for the respawn. Practice mode is passed in
+    // explicitly because a reset at the level start is NOT enough to
+    // determine whether the recording session has ended: dying before
+    // the first checkpoint also respawns at the beginning.
+    //
+    // While practice mode is active, every reset belongs to the same
+    // recording session: checkpoint deaths roll back to the checkpoint
+    // frame, while deaths/restarts at the beginning roll back to frame 0.
+    // The recording only moves to Standby once practice mode is no longer
+    // active.
+    void onLevelReset(float respawnX, bool practiceMode);
 
     void setLevelName(const std::string& name) { m_levelName = name; }
 

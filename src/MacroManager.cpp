@@ -141,7 +141,7 @@ void MacroManager::truncateToFrame(uint32_t frame) {
     );
 }
 
-void MacroManager::onLevelReset(float respawnX) {
+void MacroManager::onLevelReset(float respawnX, bool practiceMode) {
     if (m_mode == Mode::Recording) {
         if (!m_haveStartX) {
             // No real gameplay has happened yet — this is almost
@@ -159,39 +159,44 @@ void MacroManager::onLevelReset(float respawnX) {
             return;
         }
 
-        // A checkpoint respawn lands meaningfully past the session's
-        // recorded starting X; a genuine restart lands back at it. A
-        // small tolerance absorbs floating-point noise in the compare.
-        bool isCheckpointRespawn = std::fabs(respawnX - m_sessionStartX) >= 8.f;
+        // A reset at the level start is ambiguous: it can be a genuine
+        // restart, but it can also be a normal practice-mode death before
+        // the first checkpoint. Practice mode is therefore the authority
+        // for whether this reset ends the recording session.
+        if (practiceMode) {
+            // A checkpoint respawn lands meaningfully past the session's
+            // recorded starting X. Roll back to the most recent recorded
+            // frame at that position, discarding only the failed attempt.
+            // A respawn at the start is a normal practice-mode death (or
+            // restart), so roll back to frame 0 and keep Recording.
+            bool isCheckpointRespawn = std::fabs(respawnX - m_sessionStartX) >= 8.f;
 
-        if (isCheckpointRespawn) {
-            // The level didn't actually restart — recording continues.
-            // Roll the frame counter and the buffer back to whatever
-            // frame we were at when we were last at (approximately) this
-            // position, discarding only the attempt that just died.
-            uint32_t resumeFrame = frameForPosition(respawnX);
-            truncateToFrame(resumeFrame);
-            m_frame = resumeFrame;
-            log::info("MacroBot: checkpoint respawn — resuming recording at frame {}", m_frame);
+            if (isCheckpointRespawn) {
+                uint32_t resumeFrame = frameForPosition(respawnX);
+                truncateToFrame(resumeFrame);
+                m_frame = resumeFrame;
+                log::info("MacroBot: checkpoint respawn — resuming recording at frame {}", m_frame);
+            } else {
+                truncateToFrame(0);
+                m_frame = 0;
+                log::info("MacroBot: practice-mode reset at start — restarting recording from frame 0");
+            }
             return;
         }
 
-        // Genuine restart from the very beginning — the session is
-        // "finished": stop capturing and wait for Save. Trim trailing
-        // artifacts first: an unreleased press (GD's hold-jump-to-
-        // restart gesture, or a jump simply cut short by death), then
-        // anything landing on essentially the same tick as this reset
-        // (GD force-releasing a still-held button as part of its own
-        // death cleanup — a real handleButton call, but not something
-        // the player actually did). Neither is meaningful gameplay
-        // input to keep in the macro.
+        // Practice mode has ended. Now, and only now, finish the current
+        // recording and wait for Save. Trim trailing artifacts first: an
+        // unreleased press (GD's hold-jump-to-restart gesture, or a jump
+        // simply cut short by death), then anything landing on essentially
+        // the same tick as this reset (GD force-releasing a still-held
+        // button as part of its own death cleanup).
         trimTrailingUnreleasedPresses(m_buffer.events);
         trimTrailingEventsAtFrame(m_buffer.events, m_frame);
         m_buffer.totalFrames = m_frame;
         m_mode = Mode::Standby;
         m_positionLog.clear();
         m_haveStartX = false;
-        log::info("MacroBot: attempt finished ({} events, {} frames) — waiting for Save",
+        log::info("MacroBot: practice session finished ({} events, {} frames) — waiting for Save",
                    m_buffer.events.size(), m_frame);
     }
 
