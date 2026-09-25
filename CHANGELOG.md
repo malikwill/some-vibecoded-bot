@@ -1,5 +1,32 @@
 # Changelog
 
+## v1.1.0-beta.14
+- Fixed the "started a new session on another level, inputs at the end
+  never saved, event count changed weirdly" bug. `resetLevel()` can fire
+  more than once in quick succession (observed during level/practice-
+  mode startup — entering practice mode alone can trigger it, sometimes
+  more than once), and each call scheduled its own deferred position
+  check one frame later. A stale pending check from an earlier call
+  could end up firing AFTER real gameplay had already resumed and moved
+  on, misreading ongoing play as a fresh reset event and corrupting the
+  recording. `resetLevel()` now cancels any previously-scheduled check
+  before scheduling a new one, so only the latest call's check ever runs.
+- Fixed the events counter going up on death even though death itself
+  isn't a press/release. GD force-releases any button the player was
+  still holding as part of its own death cleanup, which fires a real
+  `handleButton(false, ...)` call — indistinguishable at the moment it
+  happens from a deliberate release, but it's cleanup, not something the
+  player did. Unlike an unreleased trailing press (already trimmed since
+  beta.12), this looks like a perfectly normal, properly-paired release,
+  so it needed its own check: on a genuine restart, any trailing event
+  landing within a couple of frames of the reset itself is now also
+  trimmed before the macro is finalized.
+
+## v1.1.0-beta.13
+- `mod.json`: set the real mod id (`itzmalikhere.macrobot`) and developer
+  (`malik`), replacing the `yourname` placeholders. `LICENSE` updated to
+  match.
+
 ## v1.1.0-beta.12
 - Fixed "one death immediately puts it on Standby" — a second, distinct
   bug from last time's fix. Pressing Record calls `enterPracticeAndResume()`,

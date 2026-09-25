@@ -1,11 +1,11 @@
 {
     "geode": "5.10.1",
-    "version": "v1.1.0-beta.12",
-    "id": "yourname.macrobot",
+    "version": "v1.1.0-beta.14",
+    "id": "itzmalikhere.macrobot",
     "name": "MacroBot",
-    "developer": "yourname",
+    "developer": "malik",
     "description": "Record and replay frame-perfect input macros. Circular menu in the pause screen: Record, Play, Load.",
-    "repository": "https://github.com/yourname/MacroBot",
+    "repository": "https://github.com/itzmalikhere/MacroBot",
     "tags": ["gameplay", "utility", "offline"],
     "gd": {
         "android": "2.2081"
