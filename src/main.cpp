@@ -131,6 +131,17 @@ class $modify(MacroBotPlayLayer, PlayLayer) {
         // "far from the start" and get misclassified as a checkpoint
         // respawn. Check one frame later instead, by which point the
         // position has actually caught up.
+        //
+        // Cancel any previously-scheduled check first: resetLevel() can
+        // fire more than once in quick succession (observed during
+        // level/practice-mode startup — entering practice mode alone can
+        // trigger it, sometimes more than once), and a STALE pending
+        // check firing later — after real gameplay has already resumed
+        // and moved on — was misreading ongoing play as a fresh reset
+        // event, corrupting the recording ("events weirdly changed",
+        // nothing actually saving). Only the latest resetLevel() call's
+        // check should ever run.
+        this->unschedule(schedule_selector(MacroBotPlayLayer::checkLevelResetKind));
         this->scheduleOnce(schedule_selector(MacroBotPlayLayer::checkLevelResetKind), 0.0f);
     }
 

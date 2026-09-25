@@ -63,6 +63,23 @@ static void trimTrailingUnreleasedPresses(std::vector<InputEvent>& events) {
     }
 }
 
+// Drops trailing events that landed on essentially the same tick as the
+// reset itself. On death, GD force-releases any button the player was
+// still holding as part of its own cleanup — that generates a real
+// handleButton(false, ...) call, indistinguishable at the moment it
+// happens from a deliberate release, but it's death cleanup, not
+// something the player actually did. Unlike an unreleased trailing
+// press, this looks like a perfectly normal, properly-paired release —
+// so it isn't caught by trimTrailingUnreleasedPresses above and needs
+// its own pass. A tiny tolerance (a couple of frames) is enough to catch
+// it without discarding a genuine release the player happened to make
+// just before dying.
+static void trimTrailingEventsAtFrame(std::vector<InputEvent>& events, uint32_t resetFrame) {
+    while (!events.empty() && events.back().frame + 2 >= resetFrame) {
+        events.pop_back();
+    }
+}
+
 void MacroManager::startRecording() {
     m_mode = Mode::Recording;
     m_frame = 0;
@@ -160,13 +177,16 @@ void MacroManager::onLevelReset(float respawnX) {
         }
 
         // Genuine restart from the very beginning — the session is
-        // "finished": stop capturing and wait for Save. Trim any
-        // trailing press with no matching release first — GD's
-        // hold-jump-to-restart gesture (or a jump simply cut short by
-        // death) generates a real handleButton(true, ...) call that
-        // gets recorded like any other press, but it isn't meaningful
-        // gameplay input to keep in the macro.
+        // "finished": stop capturing and wait for Save. Trim trailing
+        // artifacts first: an unreleased press (GD's hold-jump-to-
+        // restart gesture, or a jump simply cut short by death), then
+        // anything landing on essentially the same tick as this reset
+        // (GD force-releasing a still-held button as part of its own
+        // death cleanup — a real handleButton call, but not something
+        // the player actually did). Neither is meaningful gameplay
+        // input to keep in the macro.
         trimTrailingUnreleasedPresses(m_buffer.events);
+        trimTrailingEventsAtFrame(m_buffer.events, m_frame);
         m_buffer.totalFrames = m_frame;
         m_mode = Mode::Standby;
         m_positionLog.clear();
