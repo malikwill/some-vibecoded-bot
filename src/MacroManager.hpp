@@ -28,10 +28,6 @@ public:
     // previously pending (recording or standby).
     void startRecording();
 
-    // Ends the active recording without discarding the captured attempt.
-    // The result enters Standby so it can be saved with the Save button.
-    void stopRecording();
-
     // Writes whatever's currently pending (must be in Standby, i.e. a
     // finished attempt that hasn't been saved yet) to disk, named after
     // the level, and arms it so Play works immediately. No-op if there's
@@ -45,7 +41,11 @@ public:
     bool loadMacroFromFile(const std::filesystem::path& path);
 
     // Starts playing whatever is currently armed (from loadMacroFromFile,
-    // or a macro that was just saved). No-op if nothing is armed.
+    // or a macro that was just saved). Does NOT immediately switch to
+    // Mode::Playing — see notifyResetLevelCalled()/onLevelReset for why:
+    // the caller is expected to trigger a level reset right after this
+    // (see beginPlayback() in BotMenu.cpp), and playback only actually
+    // starts once that reset has settled. No-op if nothing is armed.
     void startPlaying();
     void stopPlaying();
 
@@ -115,6 +115,20 @@ public:
     // active.
     void onLevelReset(float respawnX, bool practiceMode);
 
+    // Called synchronously from PlayLayer::resetLevel() (see main.cpp),
+    // the instant a reset happens — NOT deferred. If a playback session
+    // just started or is already running, this immediately stops
+    // onPhysicsStep from firing any further events until onLevelReset's
+    // deferred check confirms the reset has settled and re-establishes
+    // frame 0 / the play cursor. Without this, there was a real accuracy
+    // bug: startPlaying() set frame/cursor to 0 immediately, but the
+    // level's actual reset doesn't settle until a frame later — in that
+    // gap, a few of the macro's first events would fire against a not-
+    // yet-settled game state, then get discarded and re-fired a second
+    // time once the settled reset zeroed frame/cursor again. Same thing
+    // happened on every mid-playback retry, not just the very first one.
+    void notifyResetLevelCalled();
+
     void setLevelName(const std::string& name) { m_levelName = name; }
 
     std::filesystem::path macrosDir() const;
@@ -135,6 +149,10 @@ private:
     MacroData m_buffer;                    // recording / standby buffer
     std::optional<MacroData> m_armed;      // loaded / just-saved, ready to play
     std::optional<std::string> m_armedDisplayName;
+    bool m_pendingPlaybackStart = false;   // startPlaying() was called; waiting
+                                            // for the level reset it triggers to settle
+    bool m_awaitingResetSettle = false;    // a resetLevel() just fired while Playing;
+                                            // onPhysicsStep must not fire until this clears
 
     // Position -> frame log, built while Recording, used to figure out
     // which frame a checkpoint respawn should roll back to.

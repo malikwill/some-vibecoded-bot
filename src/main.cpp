@@ -123,6 +123,14 @@ class $modify(MacroBotPlayLayer, PlayLayer) {
 
     void resetLevel() {
         PlayLayer::resetLevel();
+        // Synchronous notification (not deferred): if we're Playing (or
+        // about to start), stop onPhysicsStep from firing anything more
+        // until this reset settles — see
+        // MacroManager::notifyResetLevelCalled for the accuracy bug this
+        // closes (playback's first few events, or the first few after a
+        // mid-playback retry, firing twice).
+        MacroManager::get().notifyResetLevelCalled();
+
         // Reading the player's position immediately here was the actual
         // bug behind "never goes to standby": it isn't necessarily
         // settled into its final post-reset spot synchronously within

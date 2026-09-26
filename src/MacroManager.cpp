@@ -9,13 +9,6 @@ using namespace geode::prelude;
 
 namespace macrobot {
 
-// `resetLevel()` schedules its reset-kind check for the next frame.
-// Playback initialization itself also calls resetLevel(), so that delayed
-// check can arrive after playback has started. Ignore exactly that one
-// initialization reset; real resets that happen later during playback
-// still restart the macro from frame 0.
-static bool s_ignoreNextPlaybackReset = false;
-
 MacroManager& MacroManager::get() {
     static MacroManager instance;
     return instance;
@@ -98,29 +91,6 @@ void MacroManager::startRecording() {
     log::info("MacroBot: recording started for level '{}'", m_levelName);
 }
 
-void MacroManager::stopRecording() {
-    if (m_mode != Mode::Recording) return;
-
-    // Stopping manually is the same logical end-state as finishing an
-    // attempt: preserve what was captured, trim any input that is still
-    // held, and make it available to Save.
-    size_t beforeTrim = m_buffer.events.size();
-    trimTrailingUnreleasedPresses(m_buffer.events);
-    trimTrailingEventsAtFrame(m_buffer.events, m_frame);
-
-    m_buffer.totalFrames = m_frame;
-    m_mode = Mode::Standby;
-    m_positionLog.clear();
-    m_haveStartX = false;
-
-    log::info(
-        "MacroBot: recording stopped manually — trimmed {} -> {} events, {} frames; waiting for Save",
-        beforeTrim,
-        m_buffer.events.size(),
-        m_frame
-    );
-}
-
 void MacroManager::logPosition(float x) {
     if (m_mode != Mode::Recording) return;
 
@@ -173,17 +143,23 @@ void MacroManager::truncateToFrame(uint32_t frame) {
 }
 
 void MacroManager::onLevelReset(float respawnX, bool practiceMode) {
-    log::info(
-        "MacroBot: [reset] mode={} practiceMode={} respawnX={:.2f} haveStartX={} sessionStartX={:.2f} frame={} bufferedEvents={} positionLogSize={}",
-        static_cast<int>(m_mode),
-        practiceMode,
-        respawnX,
-        m_haveStartX,
-        m_sessionStartX,
-        m_frame,
-        m_buffer.events.size(),
-        m_positionLog.size()
-    );
+    log::info("MacroBot: [reset] mode={} practiceMode={} respawnX={:.2f} haveStartX={} sessionStartX={:.2f} frame={} bufferedEvents={} positionLogSize={}",
+               static_cast<int>(m_mode), practiceMode, respawnX, m_haveStartX, m_sessionStartX, m_frame,
+               m_buffer.events.size(), m_positionLog.size());
+
+    if (m_pendingPlaybackStart) {
+        // The reset beginPlayback() triggered has now settled — this is
+        // the moment playback actually starts, not when startPlaying()
+        // was originally called. Fixes the double-fire bug described in
+        // notifyResetLevelCalled()'s comment.
+        m_pendingPlaybackStart = false;
+        m_awaitingResetSettle = false;
+        m_mode = Mode::Playing;
+        m_frame = 0;
+        m_playCursor = 0;
+        log::info("MacroBot: [reset] reset settled — playback starting now (frame 0, cursor 0)");
+        return;
+    }
 
     if (m_mode == Mode::Recording) {
         if (!m_haveStartX) {
@@ -215,32 +191,22 @@ void MacroManager::onLevelReset(float respawnX, bool practiceMode) {
             // restart), so roll back to frame 0 and keep Recording.
             float delta = std::fabs(respawnX - m_sessionStartX);
             bool isCheckpointRespawn = delta >= 8.f;
-            log::info(
-                "MacroBot: [reset] still in practice mode — delta={:.2f} -> {}",
-                delta,
-                isCheckpointRespawn ? "CHECKPOINT RESPAWN" : "RESET AT START"
-            );
+            log::info("MacroBot: [reset] still in practice mode — delta={:.2f} -> {}",
+                       delta, isCheckpointRespawn ? "CHECKPOINT RESPAWN" : "RESET AT START");
 
             if (isCheckpointRespawn) {
                 uint32_t resumeFrame = frameForPosition(respawnX);
                 size_t beforeCount = m_buffer.events.size();
                 truncateToFrame(resumeFrame);
                 m_frame = resumeFrame;
-                log::info(
-                    "MacroBot: checkpoint respawn — resuming recording at frame {} (events {} -> {})",
-                    m_frame,
-                    beforeCount,
-                    m_buffer.events.size()
-                );
+                log::info("MacroBot: checkpoint respawn — resuming recording at frame {} (events {} -> {})",
+                           m_frame, beforeCount, m_buffer.events.size());
             } else {
                 size_t beforeCount = m_buffer.events.size();
                 truncateToFrame(0);
                 m_frame = 0;
-                log::info(
-                    "MacroBot: practice-mode reset at start — restarting recording from frame 0 (events {} -> {})",
-                    beforeCount,
-                    m_buffer.events.size()
-                );
+                log::info("MacroBot: practice-mode reset at start — restarting recording from frame 0 (events {} -> {})",
+                           beforeCount, m_buffer.events.size());
             }
             return;
         }
@@ -254,42 +220,23 @@ void MacroManager::onLevelReset(float respawnX, bool practiceMode) {
         size_t beforeTrim = m_buffer.events.size();
         trimTrailingUnreleasedPresses(m_buffer.events);
         trimTrailingEventsAtFrame(m_buffer.events, m_frame);
-        log::info(
-            "MacroBot: [reset] practice mode ended — trimmed {} -> {} events, moving to Standby",
-            beforeTrim,
-            m_buffer.events.size()
-        );
+        log::info("MacroBot: [reset] practice mode ended — trimmed {} -> {} events, moving to Standby",
+                   beforeTrim, m_buffer.events.size());
         m_buffer.totalFrames = m_frame;
         m_mode = Mode::Standby;
         m_positionLog.clear();
         m_haveStartX = false;
-        log::info(
-            "MacroBot: practice session finished ({} events, {} frames) — waiting for Save",
-            m_buffer.events.size(),
-            m_frame
-        );
-        return;
+        log::info("MacroBot: practice session finished ({} events, {} frames) — waiting for Save",
+                   m_buffer.events.size(), m_frame);
     }
 
     if (m_mode == Mode::Playing) {
-        if (s_ignoreNextPlaybackReset) {
-            // Playback startup deliberately resets the level immediately
-            // before starting the macro. The reset callback is deferred
-            // by PlayLayer::resetLevel(), so it can arrive after
-            // startPlaying() has already initialized the cursor.
-            s_ignoreNextPlaybackReset = false;
-            log::info("MacroBot: [reset] ignoring playback initialization reset");
-            return;
-        }
-
-        // A real reset during playback means the attempt restarted. Keep
-        // the replay deterministic by restarting its input stream too.
+        // Mid-playback retry (the macro's own inputs led to a death, and
+        // GD is auto-resetting) — same settling rule applies: this reset
+        // has now settled, so it's safe to resume firing from scratch.
+        m_awaitingResetSettle = false;
         m_playCursor = 0;
-        m_frame = 0;
-        log::info("MacroBot: [reset] playback reset — restarting macro from frame 0");
-        return;
     }
-
     m_frame = 0;
 }
 
@@ -311,10 +258,7 @@ void MacroManager::saveStandbyMacro() {
     auto bytes = serializeMacro(m_buffer);
     std::ofstream f(path, std::ios::binary);
     if (f) {
-        f.write(
-            reinterpret_cast<const char*>(bytes.data()),
-            static_cast<std::streamsize>(bytes.size())
-        );
+        f.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
         log::info("MacroBot: saved macro to {}", path.string());
     } else {
         log::error("MacroBot: failed to write macro file {}", path.string());
@@ -331,11 +275,8 @@ void MacroManager::saveStandbyMacro() {
 }
 
 void MacroManager::cancelRecording() {
-    log::info(
-        "MacroBot: cancelRecording — discarding {} buffered events (was mode={})",
-        m_buffer.events.size(),
-        static_cast<int>(m_mode)
-    );
+    log::info("MacroBot: cancelRecording — discarding {} buffered events (was mode={})",
+               m_buffer.events.size(), static_cast<int>(m_mode));
     m_mode = Mode::Idle;
     m_buffer = MacroData{};
     m_positionLog.clear();
@@ -348,11 +289,7 @@ bool MacroManager::loadMacroFromFile(const std::filesystem::path& path) {
         log::error("MacroBot: could not open {}", path.string());
         return false;
     }
-
-    std::vector<uint8_t> bytes(
-        (std::istreambuf_iterator<char>(f)),
-        std::istreambuf_iterator<char>()
-    );
+    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 
     MacroData data;
     if (!deserializeMacro(bytes, data)) {
@@ -362,13 +299,7 @@ bool MacroManager::loadMacroFromFile(const std::filesystem::path& path) {
 
     m_armed = data;
     m_armedDisplayName = path.stem().string();
-
-    log::info(
-        "MacroBot: loaded macro '{}' ({} events)",
-        m_armedDisplayName.value(),
-        data.events.size()
-    );
-
+    log::info("MacroBot: loaded macro '{}' ({} events)", m_armedDisplayName.value(), data.events.size());
     return true;
 }
 
@@ -378,38 +309,38 @@ std::optional<std::string> MacroManager::armedMacroName() const {
 
 void MacroManager::startPlaying() {
     if (!m_armed.has_value()) return;
-
-    // `PlayLayer::resetLevel()` schedules its reset callback for later,
-    // so mark the next reset as the initialization reset before the
-    // callback can run.
-    s_ignoreNextPlaybackReset = true;
-
-    m_mode = Mode::Playing;
-    m_frame = 0;
-    m_playCursor = 0;
+    // Deliberately does NOT set m_mode = Playing or reset frame/cursor
+    // here — that happens in onLevelReset, once the level reset this is
+    // expected to be followed by (see beginPlayback() in BotMenu.cpp)
+    // has actually settled. See notifyResetLevelCalled() for why.
+    m_pendingPlaybackStart = true;
+    m_awaitingResetSettle = true;
+    log::info("MacroBot: [play] armed for playback, waiting for the level reset to settle");
 }
 
 void MacroManager::stopPlaying() {
     if (m_mode == Mode::Playing) {
         m_mode = Mode::Idle;
     }
-
+    m_pendingPlaybackStart = false;
+    m_awaitingResetSettle = false;
     m_playCursor = 0;
-    s_ignoreNextPlaybackReset = false;
 }
 
-void MacroManager::onPhysicsStep(
-    const std::function<void(uint8_t button, bool player1, bool down)>& fireInput
-) {
-    if (m_mode == Mode::Playing && m_armed.has_value()) {
-        const auto& events = m_armed->events;
+void MacroManager::notifyResetLevelCalled() {
+    if (m_mode == Mode::Playing || m_pendingPlaybackStart) {
+        m_awaitingResetSettle = true;
+    }
+}
 
+void MacroManager::onPhysicsStep(const std::function<void(uint8_t button, bool player1, bool down)>& fireInput) {
+    if (m_mode == Mode::Playing && m_armed.has_value() && !m_awaitingResetSettle) {
+        const auto& events = m_armed->events;
         while (m_playCursor < events.size() && events[m_playCursor].frame <= m_frame) {
             const auto& ev = events[m_playCursor];
             fireInput(ev.button, ev.player, ev.state);
             m_playCursor++;
         }
-
         if (m_playCursor >= events.size()) {
             // Reached the end of the macro; stop consuming further steps
             // but leave the level running normally.
@@ -424,13 +355,11 @@ void MacroManager::recordInput(int button, bool player1, bool down) {
     // Only capture while actively Recording — this is a no-op while on
     // Standby (waiting for Save) or in any other mode, by design.
     if (m_mode != Mode::Recording) return;
-
     InputEvent ev;
     ev.frame = m_frame;
     ev.button = static_cast<uint8_t>(button);
     ev.player = player1;
     ev.state = down;
-
     m_buffer.events.push_back(ev);
 }
 
@@ -452,7 +381,9 @@ void MacroManager::ensureHudLabels() {
     m_hudFrameLabel->setScale(0.5f);
     m_hudFrameLabel->setID("macrobot-frame-label"_spr);
     m_hudFrameLabel->setPosition({winSize.width - 6.f, 40.f});
-    m_hudFrameLabel->retain();
+    m_hudFrameLabel->retain(); // survive a scene-level removeAllChildren
+                               // without leaving us a dangling pointer;
+                               // released again in clearHud()
     scene->addChild(m_hudFrameLabel, 20000);
 
     m_hudEventsLabel = CCLabelBMFont::create("Events: 0", "chatFont.fnt");
@@ -470,7 +401,6 @@ void MacroManager::clearHud() {
         m_hudFrameLabel->release();
         m_hudFrameLabel = nullptr;
     }
-
     if (m_hudEventsLabel) {
         m_hudEventsLabel->removeFromParentAndCleanup(true);
         m_hudEventsLabel->release();
@@ -485,50 +415,29 @@ void MacroManager::updateHud() {
 
     if (m_hudFrameLabel) m_hudFrameLabel->setVisible(show);
     if (m_hudEventsLabel) m_hudEventsLabel->setVisible(show);
-
     if (!show) return;
 
     if (m_hudFrameLabel) {
-        m_hudFrameLabel->setString(
-            ("Frame: " + std::to_string(m_frame)).c_str()
-        );
+        m_hudFrameLabel->setString(("Frame: " + std::to_string(m_frame)).c_str());
     }
 
     if (m_hudEventsLabel) {
         std::string eventsText;
-
         switch (m_mode) {
             case Mode::Recording:
-                eventsText =
-                    "Events: " +
-                    std::to_string(recordedEventCount()) +
-                    " (recording)";
+                eventsText = "Events: " + std::to_string(recordedEventCount()) + " (recording)";
                 break;
-
             case Mode::Standby:
-                eventsText =
-                    "Events: " +
-                    std::to_string(recordedEventCount()) +
-                    " (standby, unsaved)";
+                eventsText = "Events: " + std::to_string(recordedEventCount()) + " (standby, unsaved)";
                 break;
-
             case Mode::Playing:
-                eventsText =
-                    "Events: " +
-                    std::to_string(playedEventCount()) +
-                    "/" +
-                    std::to_string(totalArmedEventCount()) +
-                    " (playing)";
+                eventsText = "Events: " + std::to_string(playedEventCount()) + "/"
+                              + std::to_string(totalArmedEventCount()) + " (playing)";
                 break;
-
             default:
-                eventsText =
-                    "Events: " +
-                    std::to_string(totalArmedEventCount()) +
-                    " armed";
+                eventsText = "Events: " + std::to_string(totalArmedEventCount()) + " armed";
                 break;
         }
-
         m_hudEventsLabel->setString(eventsText.c_str());
     }
 }
