@@ -9,6 +9,13 @@ using namespace geode::prelude;
 
 namespace macrobot {
 
+// `resetLevel()` schedules its reset-kind check for the next frame.
+// Playback initialization itself also calls resetLevel(), so that delayed
+// check can arrive after playback has started. Ignore exactly that one
+// initialization reset; real resets that happen later during playback
+// still restart the macro from frame 0.
+static bool s_ignoreNextPlaybackReset = false;
+
 MacroManager& MacroManager::get() {
     static MacroManager instance;
     return instance;
@@ -261,11 +268,28 @@ void MacroManager::onLevelReset(float respawnX, bool practiceMode) {
             m_buffer.events.size(),
             m_frame
         );
+        return;
     }
 
     if (m_mode == Mode::Playing) {
+        if (s_ignoreNextPlaybackReset) {
+            // Playback startup deliberately resets the level immediately
+            // before starting the macro. The reset callback is deferred
+            // by PlayLayer::resetLevel(), so it can arrive after
+            // startPlaying() has already initialized the cursor.
+            s_ignoreNextPlaybackReset = false;
+            log::info("MacroBot: [reset] ignoring playback initialization reset");
+            return;
+        }
+
+        // A real reset during playback means the attempt restarted. Keep
+        // the replay deterministic by restarting its input stream too.
         m_playCursor = 0;
+        m_frame = 0;
+        log::info("MacroBot: [reset] playback reset — restarting macro from frame 0");
+        return;
     }
+
     m_frame = 0;
 }
 
@@ -355,6 +379,11 @@ std::optional<std::string> MacroManager::armedMacroName() const {
 void MacroManager::startPlaying() {
     if (!m_armed.has_value()) return;
 
+    // `PlayLayer::resetLevel()` schedules its reset callback for later,
+    // so mark the next reset as the initialization reset before the
+    // callback can run.
+    s_ignoreNextPlaybackReset = true;
+
     m_mode = Mode::Playing;
     m_frame = 0;
     m_playCursor = 0;
@@ -366,6 +395,7 @@ void MacroManager::stopPlaying() {
     }
 
     m_playCursor = 0;
+    s_ignoreNextPlaybackReset = false;
 }
 
 void MacroManager::onPhysicsStep(
@@ -443,6 +473,7 @@ void MacroManager::clearHud() {
 
     if (m_hudEventsLabel) {
         m_hudEventsLabel->removeFromParentAndCleanup(true);
+        m_hudEventsLabel->release();
         m_hudEventsLabel = nullptr;
     }
 }

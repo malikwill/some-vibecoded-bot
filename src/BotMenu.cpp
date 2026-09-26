@@ -53,13 +53,18 @@ void beginPlayback() {
 
     if (!mgr.hasArmedMacro()) return;
 
-    mgr.startPlaying();
-
+    // Reset the level BEFORE putting MacroManager into Playing mode.
+    // PlayLayer::resetLevel() schedules a reset-kind callback for the
+    // next frame. Starting playback first allowed that callback to see
+    // Mode::Playing and reset m_frame/m_playCursor after playback had
+    // already begun, shifting the replay timing.
     if (auto pl = PlayLayer::get()) {
-        // Restart the attempt from the beginning so the macro's recorded
-        // step indices line up with the level's actual start.
         pl->resetLevel();
     }
+
+    // startPlaying() marks the reset just requested above as the one
+    // initialization reset to ignore when its delayed callback arrives.
+    mgr.startPlaying();
 
     resumeIfPaused();
 }
