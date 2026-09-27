@@ -1,5 +1,74 @@
 # Changelog
 
+## v1.1.0-beta.18 (fixed-timestep physics normalization)
+Addresses the "playback accuracy drops a lot, worse on ship" report —
+not a bug in this mod's own timing logic, but a real property of GD's
+engine that we weren't accounting for.
+
+- **Root cause**: GD computes how many physics substeps to run per
+  `GJBaseGameLayer::update()` call with roughly
+  `steps = max(1, round(dt * 240 / min(timeWarp, 1.0)))` — confirmed
+  against a technical write-up from the developer of Silicate (a
+  well-known GD bot), documented from disassembly. `dt` is whatever the
+  device's real frame-to-frame time happens to be at that instant, so
+  the substep sequence GD produces for a given moment of gameplay
+  depends on the actual rendering framerate at the time. A recording
+  session and a playback session essentially never share identical
+  frame timing, so they can produce a genuinely different substep
+  sequence for the same span of level — even though this mod's
+  `PlayerObject::update` hook was always faithfully counting whatever
+  substeps actually happened. Continuous, hold-sensitive modes (ship,
+  wave) show this worst because position is an integral of held-button
+  state, so any substep-count mismatch compounds every tick; cube's
+  jumps are more self-correcting.
+- **Fix**: a new hook on `GJBaseGameLayer::update(float dt)` accumulates
+  the real incoming `dt` and feeds the real `update()` in fixed 1/240s
+  slices — adapted specifically to line up with GD's own rounding
+  formula above (feeding exactly 1/240 resolves to exactly one substep
+  whenever timeWarp is 1). This makes the resulting substep sequence a
+  deterministic function of the level's own timeWarp state only, not of
+  real device frame timing — while still advancing overall game time at
+  the real accumulated rate, unlike a TAS tool that decouples simulation
+  speed from wall-clock time entirely (not what a normal-speed macro
+  mod should do).
+- This is additive: the existing `PlayerObject::update`-driven frame
+  counter, input firing, position log, and HUD all keep working exactly
+  as before — they just now receive a deterministic substep sequence to
+  count instead of a framerate-dependent one.
+
+## v1.1.0-beta.17 (playback accuracy audit)
+You asked for a full before/after trace rather than reacting to a
+specific report — the recording-side timing model checks out (recorded
+frames and playback firing are correctly symmetric relative to the
+substep they land on), but this surfaced a real, previously-unreported
+accuracy bug on the **playback** side:
+
+- **Playback's first few events (and the first few after any mid-
+  playback retry) could fire twice.** `beginPlayback()` calls
+  `startPlaying()` — which immediately zeroed `frame`/`cursor` — and
+  then triggers a level reset whose actual settling is deferred one
+  frame (the fix from a few rounds back, for the recording side's
+  checkpoint-vs-restart detection). In that one-frame gap, physics
+  substeps keep running, so a few of the macro's earliest events would
+  fire against a level that hadn't actually finished resetting yet. Then
+  the deferred settle-check would zero `frame`/`cursor` *again*, and
+  those same events would fire a second time from scratch. The identical
+  gap existed on every mid-playback retry, not just the very first start.
+- Fixed by no longer starting playback eagerly: `startPlaying()` now just
+  arms a "pending start" flag, and `PlayLayer::resetLevel()` synchronously
+  (not deferred) sets an "awaiting settle" flag the instant it's called,
+  which blocks `onPhysicsStep` from firing anything at all until the
+  deferred settle-check confirms the reset and *then* flips into
+  `Mode::Playing` with a clean `frame=0`/`cursor=0`. This also makes
+  playback's frame-0 reference point land on the exact same kind of
+  moment recording's does (right after a reset has fully settled,
+  before any further gameplay substeps run) — previously it didn't.
+- Also closed a related edge case while auditing this: clicking Play (or
+  auto-play via Load) while a recording session was still active used to
+  silently abandon the in-progress buffer. Play is now disabled during
+  Recording, and `beginPlayback()` itself refuses to start in that state
+  too (covers Load's auto-play path, not just the Play button).
+
 ## v1.1.0-beta.16
 The "dying once still puts it on Standby" bug is fixed — but not by my
 approach. You found a better one: use `PlayLayer::m_isPracticeMode`

@@ -98,6 +98,19 @@ MacroBot/
 
 ## A note on bindings
 
+`main.cpp` also hooks **`GJBaseGameLayer::update(float dt)`** to normalize
+physics timing — see the comment above `MacroBotFixedStep` in
+`main.cpp` for the full explanation, but in short: GD computes its
+per-call physics substep count from the real, device-dependent frame
+time, so a recording session and a playback session can genuinely
+process a different substep sequence for the same span of level, purely
+due to differing real frame timing. This hook accumulates real `dt` and
+feeds GD's own `update()` in fixed 1/240s slices instead, making the
+substep sequence a deterministic function of the level's own state
+rather than of device frame timing. Confirmed against a technical
+write-up from the developer of Silicate (a well-known GD bot), who
+documented GD's internal substep formula from disassembly.
+
 `BotMenuPopup` (`src/BotMenu.hpp/.cpp`) is a plain `CCLayer`, not
 `geode::Popup`/`FLAlertLayer`. An earlier revision tried to reposition a
 `Popup` to a fixed bottom-left spot by moving the whole node in
