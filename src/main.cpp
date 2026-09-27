@@ -45,6 +45,64 @@ class $modify(MacroBotBaseGameLayer, GJBaseGameLayer) {
 };
 
 // -----------------------------------------------------------------------
+// Fixed-timestep normalization: GJBaseGameLayer::update(float dt).
+//
+// This is the actual root cause of severe playback drift (worst on
+// ship/wave, per report). GD computes how many physics substeps to run
+// per update() call with roughly:
+//   steps = max(1, round(dt * 240 / min(timeWarp, 1.0)))
+// — confirmed against a technical write-up from the developer of
+// Silicate (a well-known GD bot), who documented this exact formula from
+// disassembly. `dt` here is whatever the device's real frame-to-frame
+// time happens to be at that instant — not something we otherwise
+// control — so the number of substeps GD produces for a given moment of
+// gameplay depends on the actual rendering framerate at the time. A
+// recording session and a later playback session essentially never share
+// identical frame timing, so they can produce a genuinely different
+// substep sequence for the same span of level, even though the
+// PlayerObject::update hook below faithfully counts whatever substeps
+// actually happen. Continuous, hold-sensitive modes (ship, wave) show
+// this worst because position is an integral of held-button state, so
+// any substep-count mismatch compounds every tick; cube's jumps are more
+// self-correcting (landing resets vertical state).
+//
+// Fix: accumulate the real incoming dt and feed GJBaseGameLayer's real
+// update() in fixed 1/240s slices — the classic "fix your timestep"
+// pattern, adapted specifically to line up with GD's own rounding
+// formula above (feeding exactly 1/240 makes GD's own computation
+// resolve to exactly one substep whenever timeWarp == 1). This makes the
+// resulting substep sequence a deterministic function of the level's own
+// timeWarp state only, not of real device frame timing, while still
+// advancing overall game time at the real accumulated rate (unlike a TAS
+// tool decoupling simulation from wall-clock time entirely — this mod
+// wants normal real-time gameplay pace, just with deterministic physics
+// resolution underneath it).
+// -----------------------------------------------------------------------
+
+class $modify(MacroBotFixedStep, GJBaseGameLayer) {
+    struct Fields {
+        double accumulator = 0.0;
+    };
+
+    void update(float dt) {
+        constexpr double kFixedDt = 1.0 / 240.0;
+
+        // Clamp so a lag spike or the app being backgrounded doesn't
+        // queue up a huge catch-up burst of ticks in one real frame.
+        double clamped = dt;
+        if (clamped > 0.25) clamped = 0.25;
+        if (clamped < 0.0) clamped = 0.0;
+
+        m_fields->accumulator += clamped;
+
+        while (m_fields->accumulator >= kFixedDt) {
+            m_fields->accumulator -= kFixedDt;
+            GJBaseGameLayer::update(static_cast<float>(kFixedDt));
+        }
+    }
+};
+
+// -----------------------------------------------------------------------
 // Physics-accurate frame counter: PlayerObject::update, NOT
 // PlayLayer::update.
 //
