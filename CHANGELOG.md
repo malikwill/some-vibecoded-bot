@@ -1,5 +1,46 @@
 # Changelog
 
+## v1.1.0-beta.20 (checkpoint-matching: position -> level time)
+Implements #1 from the accuracy investigation (checked against the
+ToastyReplay reference again, specifically its checkpoint/tick handling
+this time). #3 (ship-mode sub-substep precision) stays deferred per
+your call — only worth the risk if ship still turns out worst after this.
+
+- **Checkpoint-to-frame matching no longer uses player X position.**
+  It's rebuilt on `PlayLayer::m_gameState::m_levelTime` instead — the
+  same field the reference bot uses for all of its own tick/checkpoint
+  bookkeeping. The old position-based log had a real structural
+  weakness: it assumed X position only ever increases during a
+  recording, which breaks on any level with a backward-scrolling
+  segment (not rare in creative levels) — a checkpoint landing at a
+  smaller X than an earlier sample could get matched to the wrong
+  frame entirely. `m_levelTime` doesn't have that problem: it's
+  guaranteed monotonically increasing during real gameplay, since time
+  only moves forward.
+- Same bonus discovered while implementing this: the checkpoint-vs-
+  reset-at-start classification threshold is now time-based (0.15s)
+  instead of a fixed 8-unit X distance — which was implicitly
+  speed-dependent (8 units covers very different amounts of real time
+  depending on the level's own speed setting). A time threshold doesn't
+  have that issue.
+- Speed portals needed no special handling — confirmed by omission:
+  `timeWarp` doesn't appear anywhere in the reference implementation's
+  tick/recording/checkpoint code at all, meaning `m_levelTime` already
+  advances at the timeWarp-adjusted rate internally. Nothing extra
+  required here either.
+- Architecturally this is the same log-based lookup as before (build a
+  time→frame log while Recording, look up the nearest match on
+  respawn), just keyed on a value that's actually guaranteed to behave
+  the way the lookup needs it to. `logPosition()`/`frameForPosition()`
+  are now `logTime()`/`frameForLevelTime()`.
+
+## v1.1.0-beta.19
+- `resources/botButton.png` (the pause-menu icon that opens the bot
+  menu) was 100×100 and 975 bytes — regenerated at 272×272 with real
+  detail matching the logo's style: the same radial-gradient background
+  and circuit-line accents, plus a new gear ring around a red record dot
+  (reads clearly as "bot" at actual button size). Lands at ~26.8KB.
+
 ## v1.1.0-beta.18 (fixed-timestep physics normalization)
 Addresses the "playback accuracy drops a lot, worse on ship" report —
 not a bug in this mod's own timing logic, but a real property of GD's

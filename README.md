@@ -194,17 +194,23 @@ practice-mode flag and update `enterPracticeAndResume()` in
 - **Record** discards anything previously captured/pending and starts a
   fresh capture, auto-entering practice mode.
 - `PlayLayer::resetLevel()` fires for several different real situations,
-  and **`PlayLayer::m_isPracticeMode` — not position — is the authority**
-  on whether a given reset ends the recording session. Position alone is
-  ambiguous: a death before the first checkpoint respawns at the level's
-  start, which looks identical to a manual restart. While practice mode
-  is still active, every reset stays part of the same session:
+  and **`PlayLayer::m_isPracticeMode` — not position or level time — is
+  the authority** on whether a given reset ends the recording session.
+  Neither position nor time alone can tell a death-before-the-first-
+  checkpoint apart from a manual restart — both respawn at the level's
+  start. While practice mode is still active, every reset stays part of
+  the same session:
   - **Checkpoint respawn** (lands meaningfully past the session's
-    starting position): the frame counter and buffer roll back to
-    whatever frame the player was at when they were last at (about) that
-    position — tracked via a lightweight position→frame log built while
-    Recording — discarding only the events from the attempt that just
-    died. Recording continues.
+    starting level time): the frame counter and buffer roll back to
+    whatever frame the player was at when they were last at (about)
+    that point in the level's timeline — tracked via a lightweight
+    level-time→frame log built while Recording, keyed on
+    `PlayLayer::m_gameState::m_levelTime` rather than X position, since
+    time is guaranteed monotonically increasing during real gameplay
+    while X position isn't (a level with a backward-scrolling segment
+    could otherwise match a respawn against the wrong point) —
+    discarding only the events from the attempt that just died.
+    Recording continues.
   - **Reset at the start while still in practice mode** (a death before
     any checkpoint, or a deliberate restart within practice): rolls back
     to frame 0 and clears the buffer, but recording still continues —
