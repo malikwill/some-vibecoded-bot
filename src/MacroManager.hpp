@@ -96,15 +96,22 @@ public:
     void recordInput(int button, bool player1, bool down);
 
     // Called from PlayerObject::update (see main.cpp) while Recording,
-    // with the player's current X position. Used to build a lightweight
-    // log matching "position reached" to "frame it happened on", so a
-    // later checkpoint respawn (see onLevelReset) can figure out which
-    // frame to roll back to. No-op outside Recording.
-    void logPosition(float x);
+    // with the level's current elapsed time (PlayLayer::m_gameState::
+    // m_levelTime). Used to build a lightweight log matching "level time
+    // reached" to "frame it happened on", so a later checkpoint respawn
+    // (see onLevelReset) can figure out which frame to roll back to.
+    // Keyed on level time rather than player X position — confirmed
+    // against a working reference bot, which uses exactly this field for
+    // its own tick/checkpoint bookkeeping — specifically because it's
+    // guaranteed monotonically increasing during real gameplay (time
+    // only moves forward), whereas X position isn't: a level with a
+    // backward-scrolling segment could make a position-keyed log match
+    // a respawn against the wrong point entirely. No-op outside Recording.
+    void logTime(double levelTime);
 
-    // Called when PlayLayer::resetLevel() fires, after the player's
-    // position has settled for the respawn. Practice mode is passed in
-    // explicitly because a reset at the level start is NOT enough to
+    // Called when PlayLayer::resetLevel() fires, with the level's
+    // elapsed time after the reset has settled. Practice mode is passed
+    // in explicitly because a reset at the level start is NOT enough to
     // determine whether the recording session has ended: dying before
     // the first checkpoint also respawns at the beginning.
     //
@@ -113,7 +120,7 @@ public:
     // frame, while deaths/restarts at the beginning roll back to frame 0.
     // The recording only moves to Standby once practice mode is no longer
     // active.
-    void onLevelReset(float respawnX, bool practiceMode);
+    void onLevelReset(double respawnLevelTime, bool practiceMode);
 
     // Called synchronously from PlayLayer::resetLevel() (see main.cpp),
     // the instant a reset happens — NOT deferred. If a playback session
@@ -137,7 +144,7 @@ private:
     MacroManager() = default;
 
     void ensureHudLabels();
-    uint32_t frameForPosition(float x) const;
+    uint32_t frameForLevelTime(double levelTime) const;
     void truncateToFrame(uint32_t frame);
 
     Mode m_mode = Mode::Idle;
@@ -154,11 +161,13 @@ private:
     bool m_awaitingResetSettle = false;    // a resetLevel() just fired while Playing;
                                             // onPhysicsStep must not fire until this clears
 
-    // Position -> frame log, built while Recording, used to figure out
-    // which frame a checkpoint respawn should roll back to.
-    std::vector<std::pair<float, uint32_t>> m_positionLog;
-    float m_sessionStartX = 0.f;
-    bool m_haveStartX = false;
+    // Level-time -> frame log, built while Recording, used to figure out
+    // which frame a checkpoint respawn should roll back to. Keyed on
+    // PlayLayer::m_gameState::m_levelTime rather than X position — see
+    // logTime()'s comment for why.
+    std::vector<std::pair<double, uint32_t>> m_timeLog;
+    double m_sessionStartTime = 0.0;
+    bool m_haveStartTime = false;
     int m_logThrottle = 0;
 
     cocos2d::CCLabelBMFont* m_hudFrameLabel = nullptr;

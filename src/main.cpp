@@ -131,10 +131,16 @@ class $modify(MacroBotPlayerObject, PlayerObject) {
                 pl->handleButton(down, button, /*player2=*/!isPlayer1);
             });
 
-            // Feeds the position->frame log used to figure out which
+            // Feeds the level-time->frame log used to figure out which
             // frame a later checkpoint respawn should roll back to (see
-            // MacroManager::onLevelReset). No-op outside Recording.
-            MacroManager::get().logPosition(this->getPositionX());
+            // MacroManager::onLevelReset). Keyed on PlayLayer::m_gameState
+            // ::m_levelTime rather than X position — confirmed against a
+            // working reference bot, which uses exactly this field for its
+            // own tick/checkpoint bookkeeping, specifically because it's
+            // guaranteed monotonically increasing during real gameplay
+            // (unlike X position, which isn't on a backward-scrolling
+            // level). No-op outside Recording.
+            MacroManager::get().logTime(pl->m_gameState.m_levelTime);
 
             // Piggyback the debug HUD's refresh on this same hook rather
             // than a separate PlayLayer::update(dt) hook: PlayLayer does
@@ -216,13 +222,13 @@ class $modify(MacroBotPlayLayer, PlayLayer) {
     void checkLevelResetKind(float) {
         // Practice mode determines whether this reset is still part of
         // the same recording session. A death at the level start is
-        // indistinguishable from a manual restart by position alone, so
-        // X must not be used as the signal to enter Standby.
-        bool hasPlayer = this->m_player1 != nullptr;
-        float respawnX = hasPlayer ? this->m_player1->getPositionX() : 0.f;
-        log::info("MacroBot: [checkLevelResetKind] hasPlayer1={} respawnX={:.2f} practiceModeNow={}",
-                   hasPlayer, respawnX, this->m_isPracticeMode);
-        MacroManager::get().onLevelReset(respawnX, this->m_isPracticeMode);
+        // indistinguishable from a manual restart by position (or level
+        // time) alone, so neither is used as the signal to enter Standby
+        // on its own — see MacroManager::onLevelReset.
+        double respawnLevelTime = this->m_gameState.m_levelTime;
+        log::info("MacroBot: [checkLevelResetKind] respawnLevelTime={:.4f} practiceModeNow={}",
+                   respawnLevelTime, this->m_isPracticeMode);
+        MacroManager::get().onLevelReset(respawnLevelTime, this->m_isPracticeMode);
     }
 
     void onQuit() {

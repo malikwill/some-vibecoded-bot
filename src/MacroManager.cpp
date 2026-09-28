@@ -85,43 +85,45 @@ void MacroManager::startRecording() {
     m_frame = 0;
     m_buffer = MacroData{};
     m_buffer.levelName = m_levelName;
-    m_positionLog.clear();
-    m_haveStartX = false;
+    m_timeLog.clear();
+    m_haveStartTime = false;
     m_logThrottle = 0;
     log::info("MacroBot: recording started for level '{}'", m_levelName);
 }
 
-void MacroManager::logPosition(float x) {
+void MacroManager::logTime(double levelTime) {
     if (m_mode != Mode::Recording) return;
 
-    if (!m_haveStartX) {
-        m_sessionStartX = x;
-        m_haveStartX = true;
-        log::info("MacroBot: [log] session start position captured: x={:.2f} (frame {})", x, m_frame);
+    if (!m_haveStartTime) {
+        m_sessionStartTime = levelTime;
+        m_haveStartTime = true;
+        log::info("MacroBot: [log] session start level-time captured: t={:.4f} (frame {})", levelTime, m_frame);
     }
 
     // Throttle: a sample every few substeps is already far more
-    // resolution than matching a respawn position back to a frame
-    // needs, and keeps this cheap over a long recording.
+    // resolution than matching a respawn time back to a frame needs, and
+    // keeps this cheap over a long recording.
     if (++m_logThrottle < 4) return;
     m_logThrottle = 0;
 
     // Keep the log monotonic (skip samples that don't advance past the
-    // last one) and bounded, so an extremely long recording can't grow
-    // this unboundedly.
-    if (!m_positionLog.empty() && x <= m_positionLog.back().first) return;
-    m_positionLog.emplace_back(x, m_frame);
-    if (m_positionLog.size() > 20000) {
-        m_positionLog.erase(m_positionLog.begin(), m_positionLog.begin() + 10000);
+    // last one — level time only moves backward if something's actually
+    // wrong, unlike X position on a backward-scrolling level) and
+    // bounded, so an extremely long recording can't grow this
+    // unboundedly.
+    if (!m_timeLog.empty() && levelTime <= m_timeLog.back().first) return;
+    m_timeLog.emplace_back(levelTime, m_frame);
+    if (m_timeLog.size() > 20000) {
+        m_timeLog.erase(m_timeLog.begin(), m_timeLog.begin() + 10000);
     }
 }
 
-uint32_t MacroManager::frameForPosition(float x) const {
+uint32_t MacroManager::frameForLevelTime(double levelTime) const {
     uint32_t best = 0;
-    float bestX = -1e9f;
-    for (auto& sample : m_positionLog) {
-        if (sample.first <= x && sample.first > bestX) {
-            bestX = sample.first;
+    double bestTime = -1e18;
+    for (auto& sample : m_timeLog) {
+        if (sample.first <= levelTime && sample.first > bestTime) {
+            bestTime = sample.first;
             best = sample.second;
         }
     }
@@ -135,17 +137,17 @@ void MacroManager::truncateToFrame(uint32_t frame) {
             [frame](const InputEvent& ev) { return ev.frame > frame; }),
         events.end()
     );
-    m_positionLog.erase(
-        std::remove_if(m_positionLog.begin(), m_positionLog.end(),
-            [frame](const std::pair<float, uint32_t>& sample) { return sample.second > frame; }),
-        m_positionLog.end()
+    m_timeLog.erase(
+        std::remove_if(m_timeLog.begin(), m_timeLog.end(),
+            [frame](const std::pair<double, uint32_t>& sample) { return sample.second > frame; }),
+        m_timeLog.end()
     );
 }
 
-void MacroManager::onLevelReset(float respawnX, bool practiceMode) {
-    log::info("MacroBot: [reset] mode={} practiceMode={} respawnX={:.2f} haveStartX={} sessionStartX={:.2f} frame={} bufferedEvents={} positionLogSize={}",
-               static_cast<int>(m_mode), practiceMode, respawnX, m_haveStartX, m_sessionStartX, m_frame,
-               m_buffer.events.size(), m_positionLog.size());
+void MacroManager::onLevelReset(double respawnLevelTime, bool practiceMode) {
+    log::info("MacroBot: [reset] mode={} practiceMode={} respawnLevelTime={:.4f} haveStartTime={} sessionStartTime={:.4f} frame={} bufferedEvents={} timeLogSize={}",
+               static_cast<int>(m_mode), practiceMode, respawnLevelTime, m_haveStartTime, m_sessionStartTime, m_frame,
+               m_buffer.events.size(), m_timeLog.size());
 
     if (m_pendingPlaybackStart) {
         // The reset beginPlayback() triggered has now settled — this is
@@ -162,19 +164,19 @@ void MacroManager::onLevelReset(float respawnX, bool practiceMode) {
     }
 
     if (m_mode == Mode::Recording) {
-        if (!m_haveStartX) {
+        if (!m_haveStartTime) {
             // No real gameplay has happened yet — this is almost
             // certainly the reset that fires when practice mode itself
             // first kicks in, immediately after pressing Record (before
-            // a single position sample has been logged). There's
+            // a single level-time sample has been logged). There's
             // nothing to end or roll back yet: just absorb it and keep
-            // Recording. The very next logPosition() call, once actual
+            // Recording. The very next logTime() call, once actual
             // gameplay resumes, establishes the session's real starting
-            // position. Without this check, that initial reset was being
-            // misread as "genuine restart" every time (m_haveStartX &&
-            // ... short-circuits to false when it's false), ending the
-            // session before the player had even started playing.
-            log::info("MacroBot: [reset] no start position logged yet — absorbing, staying Recording");
+            // time. Without this check, that initial reset was being
+            // misread as "genuine restart" every time (m_haveStartTime
+            // && ... short-circuits to false when it's false), ending
+            // the session before the player had even started playing.
+            log::info("MacroBot: [reset] no start time logged yet — absorbing, staying Recording");
             m_frame = 0;
             return;
         }
@@ -185,17 +187,18 @@ void MacroManager::onLevelReset(float respawnX, bool practiceMode) {
         // for whether this reset ends the recording session.
         if (practiceMode) {
             // A checkpoint respawn lands meaningfully past the session's
-            // recorded starting X. Roll back to the most recent recorded
-            // frame at that position, discarding only the failed attempt.
-            // A respawn at the start is a normal practice-mode death (or
-            // restart), so roll back to frame 0 and keep Recording.
-            float delta = std::fabs(respawnX - m_sessionStartX);
-            bool isCheckpointRespawn = delta >= 8.f;
-            log::info("MacroBot: [reset] still in practice mode — delta={:.2f} -> {}",
+            // recorded starting time. Roll back to the most recent
+            // recorded frame at that time, discarding only the failed
+            // attempt. A respawn at the start is a normal practice-mode
+            // death (or restart), so roll back to frame 0 and keep
+            // Recording.
+            double delta = std::fabs(respawnLevelTime - m_sessionStartTime);
+            bool isCheckpointRespawn = delta >= 0.15;
+            log::info("MacroBot: [reset] still in practice mode — delta={:.4f}s -> {}",
                        delta, isCheckpointRespawn ? "CHECKPOINT RESPAWN" : "RESET AT START");
 
             if (isCheckpointRespawn) {
-                uint32_t resumeFrame = frameForPosition(respawnX);
+                uint32_t resumeFrame = frameForLevelTime(respawnLevelTime);
                 size_t beforeCount = m_buffer.events.size();
                 truncateToFrame(resumeFrame);
                 m_frame = resumeFrame;
@@ -224,8 +227,8 @@ void MacroManager::onLevelReset(float respawnX, bool practiceMode) {
                    beforeTrim, m_buffer.events.size());
         m_buffer.totalFrames = m_frame;
         m_mode = Mode::Standby;
-        m_positionLog.clear();
-        m_haveStartX = false;
+        m_timeLog.clear();
+        m_haveStartTime = false;
         log::info("MacroBot: practice session finished ({} events, {} frames) — waiting for Save",
                    m_buffer.events.size(), m_frame);
     }
@@ -279,8 +282,8 @@ void MacroManager::cancelRecording() {
                m_buffer.events.size(), static_cast<int>(m_mode));
     m_mode = Mode::Idle;
     m_buffer = MacroData{};
-    m_positionLog.clear();
-    m_haveStartX = false;
+    m_timeLog.clear();
+    m_haveStartTime = false;
 }
 
 bool MacroManager::loadMacroFromFile(const std::filesystem::path& path) {
